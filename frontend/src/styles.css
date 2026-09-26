@@ -314,6 +314,131 @@ p {
   margin-top: 34px;
 }
 
+.account-section {
+  max-width: 820px;
+}
+
+.account-heading {
+  margin-top: 0;
+}
+
+.account-card {
+  padding: 20px;
+  border: 1px solid #e9ecf2;
+  border-radius: 11px;
+  background: #fff;
+}
+
+.account-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #edf0f5;
+}
+
+.account-card-heading h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.account-card-heading p {
+  margin: 0;
+  color: #858da0;
+  font-size: 10px;
+}
+
+.account-form {
+  margin: 0;
+}
+
+.account-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 15px;
+  padding-top: 13px;
+  border-top: 1px solid #edf0f5;
+  color: #858da0;
+  font-size: 10px;
+}
+
+.account-meta time {
+  color: #596276;
+}
+
+.account-subheading {
+  margin-top: 30px;
+}
+
+.membership-list {
+  display: grid;
+  gap: 10px;
+}
+
+.membership-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 15px 16px;
+  border: 1px solid #e9ecf2;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.membership-details {
+  min-width: 0;
+  flex: 1;
+}
+
+.membership-details h3 {
+  margin: 2px 0 5px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.membership-details > p {
+  margin: 0 0 9px;
+  color: #777f92;
+  font-size: 10px;
+}
+
+.permission-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.permission-tag {
+  padding: 3px 7px;
+  border: 1px solid #e9e8ff;
+  border-radius: 5px;
+  background: #f7f6ff;
+  color: #5148d9;
+  direction: ltr;
+  font-family: Consolas, monospace;
+  font-size: 9px;
+}
+
+.field-hint {
+  margin: 0;
+  color: #858da0;
+  font-size: 9px;
+  line-height: 1.7;
+}
+
+.alert-success {
+  padding: 10px 12px;
+  border: 1px solid #cee9dd;
+  border-radius: 8px;
+  background: #f0faf5;
+  color: #21724f;
+  font-size: 10px;
+  line-height: 1.7;
+}
+
 .module-tabs {
   display: flex;
   gap: 6px;

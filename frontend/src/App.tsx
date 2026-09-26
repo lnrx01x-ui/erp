@@ -1,7 +1,22 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
 type ApiHealth = { status: "ok" };
-type User = { id: string; email: string; firstName: string; lastName: string };
+type UserMembership = {
+  organizationId: string;
+  organizationName: string;
+  roleCode: string;
+  roleName: string;
+  permissions: string[];
+};
+type User = {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  dateJoined: string;
+  memberships: UserMembership[];
+};
 type Organization = { id: string; name: string; created_at: string };
 type Customer = {
   id: string;
@@ -63,6 +78,7 @@ export default function App() {
   const [csrfToken, setCsrfToken] = useState("");
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selectedOrganizationId, setSelectedOrganizationId] = useState<string | null>(null);
+  const [isAccountView, setIsAccountView] = useState(false);
   const [organizationSection, setOrganizationSection] =
     useState<OrganizationSection>("customers");
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -70,6 +86,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   const loadOrganizations = useCallback(async () => {
     const response = await fetch("/api/v1/organizations/");
@@ -144,6 +161,7 @@ export default function App() {
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    setNotice("");
     setIsSubmitting(true);
     const form = new FormData(event.currentTarget);
 
@@ -159,6 +177,7 @@ export default function App() {
       if (!response.ok) throw new Error(await responseError(response));
       const result: LoginResponse = await response.json();
       setUser(result.user);
+      setIsAccountView(false);
       setCsrfToken(result.csrfToken);
       await loadOrganizations();
     } catch (caught: unknown) {
@@ -210,6 +229,7 @@ export default function App() {
     try {
       await loadCustomers(organization.id);
       setSelectedOrganizationId(organization.id);
+      setIsAccountView(false);
       setOrganizationSection("customers");
     } catch (caught: unknown) {
       setError(
@@ -228,12 +248,77 @@ export default function App() {
     try {
       await loadProducts(organization.id);
       setSelectedOrganizationId(organization.id);
+      setIsAccountView(false);
       setOrganizationSection("products");
     } catch (caught: unknown) {
       setError(
         caught instanceof Error
           ? caught.message
           : "تعذر تحميل المنتجات. حاول مرة أخرى.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleUpdateProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setNotice("");
+    setIsSubmitting(true);
+    const form = new FormData(event.currentTarget);
+
+    try {
+      const response = await fetch("/api/v1/auth/me/", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken },
+        body: JSON.stringify({
+          firstName: form.get("firstName"),
+          lastName: form.get("lastName"),
+          phone: form.get("phone"),
+        }),
+      });
+      if (!response.ok) throw new Error(await responseError(response));
+      const updatedUser: User = await response.json();
+      setUser(updatedUser);
+      setNotice("تم حفظ بيانات الحساب.");
+    } catch (caught: unknown) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "تعذر تحديث بيانات الحساب. حاول مرة أخرى.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleChangePassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setNotice("");
+    setIsSubmitting(true);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+
+    try {
+      const response = await fetch("/api/v1/auth/password/change/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken },
+        body: JSON.stringify({
+          currentPassword: form.get("currentPassword"),
+          newPassword: form.get("newPassword"),
+          confirmNewPassword: form.get("confirmNewPassword"),
+        }),
+      });
+      if (!response.ok) throw new Error(await responseError(response));
+      formElement.reset();
+      setNotice("تم تغيير كلمة المرور. ما زالت جلستك الحالية مفتوحة.");
+    } catch (caught: unknown) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "تعذر تغيير كلمة المرور. حاول مرة أخرى.",
       );
     } finally {
       setIsSubmitting(false);
@@ -344,6 +429,8 @@ export default function App() {
       if (!response.ok) throw new Error(await responseError(response));
       setUser(null);
       setOrganizations([]);
+      setIsAccountView(false);
+      setSelectedOrganizationId(null);
     } catch (caught: unknown) {
       setError(
         caught instanceof Error
@@ -433,19 +520,22 @@ export default function App() {
         </a>
         <div className="sidebar-label">إدارة الأعمال</div>
         <a
-          className={`nav-item ${selectedOrganization ? "" : "nav-item-active"}`}
+          className={`nav-item ${!isAccountView && !selectedOrganization ? "nav-item-active" : ""}`}
           href="#organizations"
           onClick={() => {
+            setIsAccountView(false);
             setSelectedOrganizationId(null);
             setCustomers([]);
+            setProducts([]);
             setError("");
+            setNotice("");
           }}
         >
           <span className="nav-icon">▦</span>
           الشركات
         </a>
         <a
-          className={`nav-item ${selectedOrganization ? "nav-item-active" : "nav-item-muted"}`}
+          className={`nav-item ${selectedOrganization && organizationSection === "customers" ? "nav-item-active" : "nav-item-muted"}`}
           href="#organizations"
           onClick={() => {
             if (organizations.length > 0) {
@@ -468,6 +558,19 @@ export default function App() {
           <span className="nav-icon">▤</span>
           المنتجات
         </a>
+        <a
+          className={`nav-item ${isAccountView ? "nav-item-active" : "nav-item-muted"}`}
+          href="#account"
+          onClick={() => {
+            setIsAccountView(true);
+            setSelectedOrganizationId(null);
+            setError("");
+            setNotice("");
+          }}
+        >
+          <span className="nav-icon">◉</span>
+          حسابي
+        </a>
         <div className="sidebar-footer">نسخة تأسيسية · 0.1</div>
       </aside>
 
@@ -478,6 +581,19 @@ export default function App() {
             <h1>مساحة العمل</h1>
           </div>
           <div className="topbar-actions">
+            <button
+              className="text-button"
+              type="button"
+              onClick={() => {
+                setIsAccountView(true);
+                setSelectedOrganizationId(null);
+                setError("");
+                setNotice("");
+              }}
+              disabled={isSubmitting}
+            >
+              حسابي
+            </button>
             <span className={`api-pill api-${apiStatus}`}>
               <span className="status-dot" />
               الخادم: {statusLabel}
@@ -494,6 +610,7 @@ export default function App() {
         </header>
 
         {error && <div className="alert-error page-alert" role="alert">{error}</div>}
+        {notice && <div className="alert-success page-alert" role="status">{notice}</div>}
 
         <section className="welcome-card">
           <div className="welcome-copy">
@@ -509,7 +626,187 @@ export default function App() {
         </section>
 
         <section className="organizations-section" id="organizations">
-          {selectedOrganization ? (
+          {isAccountView ? (
+            <section className="account-section" id="account">
+              <div className="section-heading account-heading">
+                <div>
+                  <button
+                    className="back-button"
+                    type="button"
+                    onClick={() => {
+                      setIsAccountView(false);
+                      setError("");
+                      setNotice("");
+                    }}
+                  >
+                    ← مساحة العمل
+                  </button>
+                  <h2>حسابي</h2>
+                  <p>بيانات الحساب وعضويات الشركات وإعدادات كلمة المرور.</p>
+                </div>
+              </div>
+
+              <article className="account-card">
+                <div className="account-card-heading">
+                  <span className="organization-icon">ح</span>
+                  <div>
+                    <h3>{user.firstName || user.lastName
+                      ? `${user.firstName} ${user.lastName}`.trim()
+                      : user.email}</h3>
+                    <p>{user.email}</p>
+                  </div>
+                </div>
+                <form
+                  className="customer-form account-form"
+                  key={`${user.firstName}|${user.lastName}|${user.phone}`}
+                  onSubmit={handleUpdateProfile}
+                >
+                  <div className="customer-form-row">
+                    <div className="customer-field">
+                      <label htmlFor="profile-first-name">الاسم الأول</label>
+                      <input
+                        id="profile-first-name"
+                        name="firstName"
+                        type="text"
+                        maxLength={150}
+                        defaultValue={user.firstName}
+                        autoComplete="given-name"
+                        disabled={isSubmitting}
+                      />
+                    </div>
+                    <div className="customer-field">
+                      <label htmlFor="profile-last-name">اسم العائلة</label>
+                      <input
+                        id="profile-last-name"
+                        name="lastName"
+                        type="text"
+                        maxLength={150}
+                        defaultValue={user.lastName}
+                        autoComplete="family-name"
+                        disabled={isSubmitting}
+                      />
+                    </div>
+                  </div>
+                  <label htmlFor="profile-email">البريد الإلكتروني</label>
+                  <input
+                    id="profile-email"
+                    type="email"
+                    value={user.email}
+                    autoComplete="email"
+                    readOnly
+                  />
+                  <label htmlFor="profile-phone">رقم الهاتف</label>
+                  <input
+                    id="profile-phone"
+                    name="phone"
+                    type="tel"
+                    maxLength={40}
+                    defaultValue={user.phone}
+                    autoComplete="tel"
+                    disabled={isSubmitting}
+                  />
+                  <button className="primary-button" type="submit" disabled={isSubmitting}>
+                    {isSubmitting ? "جارٍ الحفظ..." : "حفظ بيانات الحساب"}
+                  </button>
+                </form>
+                <div className="account-meta">
+                  <span>تاريخ إنشاء الحساب</span>
+                  <time dateTime={user.dateJoined}>
+                    {new Intl.DateTimeFormat("ar-EG", {
+                      dateStyle: "medium",
+                    }).format(new Date(user.dateJoined))}
+                  </time>
+                </div>
+              </article>
+
+              <div className="section-heading account-subheading">
+                <div>
+                  <h2>عضويات الشركات</h2>
+                  <p>الأدوار والصلاحيات النشطة لحسابك، للعرض فقط.</p>
+                </div>
+                <span className="count-badge">{user.memberships.length}</span>
+              </div>
+              {user.memberships.length > 0 ? (
+                <div className="membership-list">
+                  {user.memberships.map((membership) => (
+                    <article
+                      className="membership-card"
+                      key={membership.organizationId}
+                    >
+                      <span className="organization-icon">ش</span>
+                      <div className="membership-details">
+                        <h3>{membership.organizationName}</h3>
+                        <p>الدور: {membership.roleName}</p>
+                        <div className="permission-tags">
+                          {membership.permissions.map((permission) => (
+                            <span className="permission-tag" key={permission}>
+                              {permission}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <span className="empty-state-icon">◉</span>
+                  <h3>لا توجد عضويات نشطة</h3>
+                  <p>أنشئ شركة أو اطلب من مالك الشركة إضافتك.</p>
+                </div>
+              )}
+
+              <div className="section-heading account-subheading">
+                <div>
+                  <h2>الأمان</h2>
+                  <p>تغيير كلمة المرور يؤمّن الجلسات الأخرى تلقائيًا.</p>
+                </div>
+              </div>
+              <form className="customer-form account-form" onSubmit={handleChangePassword}>
+                <label htmlFor="current-password">كلمة المرور الحالية</label>
+                <input
+                  id="current-password"
+                  name="currentPassword"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  disabled={isSubmitting}
+                />
+                <div className="customer-form-row">
+                  <div className="customer-field">
+                    <label htmlFor="new-password">كلمة المرور الجديدة</label>
+                    <input
+                      id="new-password"
+                      name="newPassword"
+                      type="password"
+                      autoComplete="new-password"
+                      minLength={8}
+                      required
+                      disabled={isSubmitting}
+                    />
+                  </div>
+                  <div className="customer-field">
+                    <label htmlFor="confirm-new-password">تأكيد كلمة المرور الجديدة</label>
+                    <input
+                      id="confirm-new-password"
+                      name="confirmNewPassword"
+                      type="password"
+                      autoComplete="new-password"
+                      minLength={8}
+                      required
+                      disabled={isSubmitting}
+                    />
+                  </div>
+                </div>
+                <p className="field-hint">
+                  يجب أن تكون كلمة المرور قوية، وألا تكون شائعة أو مشابهة لبيانات حسابك.
+                </p>
+                <button className="primary-button" type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? "جارٍ التحديث..." : "تغيير كلمة المرور"}
+                </button>
+              </form>
+            </section>
+          ) : selectedOrganization ? (
             <>
               <div className="module-tabs" role="tablist" aria-label="بيانات الشركة">
                 <button

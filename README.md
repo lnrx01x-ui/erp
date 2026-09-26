@@ -5,14 +5,16 @@ A private, modular-monolith ERP foundation using Django REST Framework, PostgreS
 ## Current scope
 
 - Custom email-based user model.
+- Basic user profile with first/last name and optional phone.
+- CSRF-protected profile updates and password changes using Django's password validators.
 - Organizations with organization-scoped roles and permissions.
 - Active memberships as the tenant boundary.
 - Organization-scoped API listing and organization creation.
 - Organization-scoped customer listing and creation with tenant permissions.
 - Organization-scoped product catalogs with unique per-company SKUs, unit of measure, and decimal prices.
 - Append-only audit events for organization creation.
-- CSRF-protected session login/logout and current-user endpoints.
-- A React dashboard for signing in, managing organizations, and recording customers.
+- CSRF-protected session login/logout, current-user, and password-change endpoints.
+- A React dashboard for signing in, managing organizations, customers, products, and account settings.
 - SQLite fallback for zero-cost local development; PostgreSQL is the intended database and can be selected with `DATABASE_URL`.
 
 This is a starting foundation, not a production-ready ERP. Public registration, operational modules, deployment, backups, and a production security review are not included yet.
@@ -49,7 +51,6 @@ cd backend
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 py -m pip install -r ..\requirements.txt
-py manage.py makemigrations accounts organizations audit
 py manage.py migrate
 py manage.py createsuperuser
 py manage.py runserver
@@ -83,7 +84,9 @@ Vite proxies `/api` requests to `http://127.0.0.1:8000`.
 - `GET /api/v1/auth/csrf/` — initialize a CSRF-protected browser session.
 - `POST /api/v1/auth/login/` — log in with email and password plus an `X-CSRFToken` header.
 - `POST /api/v1/auth/logout/` — end the authenticated session plus an `X-CSRFToken` header.
-- `GET /api/v1/auth/me/` — return the current authenticated user.
+- `GET /api/v1/auth/me/` — return the current authenticated user's profile and active organization memberships with assigned roles and permissions.
+- `PATCH /api/v1/auth/me/` — update first name, last name, and phone; email and access fields are read-only.
+- `POST /api/v1/auth/password/change/` — change password after verifying the current password and configured Django validators; preserves the current session and invalidates sessions with stale password hashes.
 - `GET /api/v1/organizations/` — organizations for the authenticated user's active memberships only.
 - `POST /api/v1/organizations/` — create an organization; the authenticated creator is assigned its owner role and membership.
 - `GET /api/v1/organizations/{organization_id}/customers/` — list customers if the active organization role grants `customers.read`.
@@ -93,7 +96,7 @@ Vite proxies `/api` requests to `http://127.0.0.1:8000`.
 
 The product catalog stores product/service details, SKU, unit, sale price, and cost price. Inventory quantities and movements are deliberately handled by the future inventory module.
 
-API authentication uses Django sessions and CSRF protection for login and other state-changing requests. Create the first user with `createsuperuser`, then sign in through the frontend; user self-registration is intentionally not enabled.
+API authentication uses Django sessions and CSRF protection for login and other state-changing requests. Passwords are hashed by Django and checked against the configured validators on password change. Create the first user with `createsuperuser`, then sign in through the frontend; user self-registration and membership administration are intentionally not enabled. Profile endpoints never accept email, role, membership, or permission changes.
 
 ## Dependency and IP hygiene
 

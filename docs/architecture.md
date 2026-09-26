@@ -1,8 +1,10 @@
 # M1 — Current architecture baseline
 
 This document records the architecture that exists today. It is a description
-of the working baseline, not a proposal to replace it. M1 makes no runtime,
-API, dependency, or database-schema changes.
+of the working baseline, not a proposal to replace it. M1 established the
+baseline without runtime changes. M2 added only the user profile and password
+foundation documented here; the original session authentication and CSRF
+behavior remain intact.
 
 ## System shape
 
@@ -23,7 +25,7 @@ Backend responsibilities are divided into Django apps:
 
 | App | Current responsibility |
 | --- | --- |
-| `accounts` | UUID, email-based user identity; CSRF bootstrap and session login, logout, and current-user API |
+| `accounts` | UUID, email-based identity and basic profile; CSRF bootstrap and session login, logout, current-user, and password-change APIs |
 | `organizations` | Tenant records, memberships, organization roles, permission catalog, and organization API |
 | `customers` | Customer records scoped to an organization |
 | `products` | Product/service catalog scoped to an organization |
@@ -46,6 +48,8 @@ User ──< Membership >── Organization ──< Role >──< AccessPermiss
 ```
 
 - A user can have memberships in multiple organizations.
+- A user profile has an optional phone field; first/last name and date joined
+  use existing Django user fields. Email remains the unique login identity.
 - A membership is unique per `(organization, user)`, can be deactivated, and
   points to a role belonging to that organization.
 - A role's permission codes come from a shared permission catalog; the role
@@ -71,17 +75,24 @@ are also not modeled yet.
 2. The frontend obtains a CSRF token before login and sends `X-CSRFToken` with
    login and other state-changing requests. Django's CSRF middleware remains
    enabled.
-3. Organization listing uses the authenticated user's active memberships.
+3. Passwords use Django's configured password hashers. A password change
+   verifies the current password, runs the configured Django validators, and
+   rejects reusing the current password. Rotating the current session auth hash
+   preserves the current session while invalidating sessions with stale hashes.
+4. Organization listing uses the authenticated user's active memberships.
    Organization creation assigns the creator the owner role in the same
    transaction that creates its roles and audit event.
-4. Customer and product endpoints require an active membership in the URL's
+5. Customer and product endpoints require an active membership in the URL's
    organization and the matching organization-role permission.
-5. Tenant-scoped reads filter by both organization ID and the requesting
+6. Tenant-scoped reads filter by both organization ID and the requesting
    user's active membership. The organization ID supplied in a URL is a
    selector, not proof of authorization.
-6. Customer/product creation derives the organization from the authenticated
+7. Customer/product creation derives the organization from the authenticated
    membership, validates input on the server, and writes an audit event in the
    same database transaction.
+8. The current-user response includes only the caller's active memberships and
+   the assigned role and permission codes. Role and membership administration
+   is not exposed by this API.
 
 Tenant isolation is currently enforced by Django view querysets and permission
 checks. PostgreSQL Row-Level Security is **not** enabled. Do not add a
@@ -98,7 +109,9 @@ All application API routes use `/api/v1/`.
 | `GET /auth/csrf/` | Initialize a CSRF-protected browser session |
 | `POST /auth/login/` | CSRF-protected email/password session login |
 | `POST /auth/logout/` | CSRF-protected session logout |
-| `GET /auth/me/` | Return the authenticated user |
+| `GET /auth/me/` | Return the authenticated profile and active memberships |
+| `PATCH /auth/me/` | Update first name, last name, and phone; identity and access fields remain read-only |
+| `POST /auth/password/change/` | Verify current password and validators before changing password |
 | `GET /organizations/` | List organizations with the user's active memberships |
 | `POST /organizations/` | Create an organization and its initial owner/membership |
 | `GET /organizations/{id}/customers/` | List customers with `customers.read` |
@@ -133,7 +146,7 @@ The established local database and its data are part of the baseline.
   read-only for events. This is application-level protection, not an
   immutable database ledger; a database administrator can still alter rows.
 - There are currently no customer or product update/archive endpoints,
-  employee invitation flow, role-management API, sales, purchase, stock,
+  employee invitation flow, role/membership management API, sales, purchase, stock,
   accounting, or reporting workflows.
 - Product prices have two decimal places, but a company currency and exchange
   rate model have not been decided.
@@ -143,10 +156,14 @@ The established local database and its data are part of the baseline.
 - Permissions are organization-scoped at the role/membership layer. The
   permission definitions are shared records and are not separate per tenant.
 
-## M1 outcome and next decision
+## M1 baseline and M2 outcome
 
 M1 records the working architecture and non-negotiable compatibility rules.
-The next implementation should be an additive, end-to-end feature on top of
-this baseline. Before choosing a sales workflow, agree whether its first
-version is a quotation, an order, or an issued invoice; those are different
-business documents and have different stock and accounting consequences.
+The first M2 slice adds optional phone data through an additive migration,
+editable basic profile fields, active-membership context, and validated
+password changes. It does not replace session authentication, alter existing
+organization membership/role models, or provide invitations and role
+administration. Further work is paused for review. Before a later sales
+workflow, agree whether its first version is a quotation, an order, or an
+issued invoice; those are different business documents and have different
+stock and accounting consequences.

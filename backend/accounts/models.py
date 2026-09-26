@@ -31,6 +31,7 @@ class User(AbstractUser):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     username = None
     email = models.EmailField(unique=True)
+    phone = models.CharField(max_length=40, blank=True, default="")
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
