@@ -1,0 +1,38 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Python environments, bytecode, and tooling caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Local databases and generated assets
+*.sqlite3
+*.sqlite
+*.db
+staticfiles/
+media/
+uploads/
+
+# Frontend dependencies and build output
+node_modules/
+dist/
+coverage/
+
+# Tool caches and local editor/OS state
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.tsbuildinfo
+*.log
+.DS_Store
+Thumbs.db
+
+# Private keys and certificate bundles
+*.pem
+*.key
+*.p12
+*.pfx
