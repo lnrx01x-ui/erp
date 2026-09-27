@@ -2,6 +2,36 @@ import uuid
 
 from django.db import models
 from django.db.models import Q
+from django.db.models.functions import Lower
+
+
+class ProductCategory(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.CASCADE,
+        related_name="product_categories",
+    )
+    name = models.CharField(max_length=100)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("name", "id")
+        constraints = [
+            models.UniqueConstraint(
+                Lower("name"),
+                "organization",
+                name="unique_product_category_name_per_org",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.name = self.name.strip()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
 
 
 class Product(models.Model):
@@ -19,6 +49,13 @@ class Product(models.Model):
         "organizations.Organization",
         on_delete=models.CASCADE,
         related_name="products",
+    )
+    category = models.ForeignKey(
+        ProductCategory,
+        on_delete=models.PROTECT,
+        related_name="products",
+        null=True,
+        blank=True,
     )
     name = models.CharField(max_length=160)
     sku = models.CharField(max_length=64, blank=True)
@@ -65,6 +102,11 @@ class Product(models.Model):
     def save(self, *args, **kwargs):
         self.name = self.name.strip()
         self.sku = self.sku.strip().upper()
+        if self.category_id and not ProductCategory.objects.filter(
+            pk=self.category_id,
+            organization_id=self.organization_id,
+        ).exists():
+            raise ValueError("A product category must belong to the same organization.")
         return super().save(*args, **kwargs)
 
     def __str__(self):

@@ -1,10 +1,11 @@
-# M1 — Current architecture baseline
+# نسق — Architecture and current delivery scope
 
 This document records the architecture that exists today. It is a description
-of the working baseline, not a proposal to replace it. M1 established the
-baseline without runtime changes. M2 added only the user profile and password
-foundation documented here; the original session authentication and CSRF
-behavior remain intact.
+of the working baseline and the current MVP, not a proposal to replace it. M1
+established the baseline without runtime changes. M2 added the user profile,
+password, and read-only membership foundations; later MVP slices added
+products, inventory, sales invoices, and collections. Session authentication
+and CSRF behavior remain intact.
 
 ## System shape
 
@@ -29,6 +30,8 @@ Backend responsibilities are divided into Django apps:
 | `organizations` | Tenant records, memberships, organization roles, permission catalog, and organization API |
 | `customers` | Customer records scoped to an organization |
 | `products` | Product/service catalog scoped to an organization |
+| `inventory` | Warehouses, append-only stock movements, calculated balances |
+| `sales` | Issued sales invoices, immutable invoice lines, and collections |
 | `audit` | Organization-scoped audit events |
 | `core` | Public health endpoint |
 
@@ -43,7 +46,11 @@ permissions, validation, and tenant scope.
 User ──< Membership >── Organization ──< Role >──< AccessPermission
                             │
                             ├──< Customer
-                            ├──< Product
+                            ├──< ProductCategory ──< Product
+                            ├──< Product (optional category)
+                            ├──< Warehouse ──< StockMovement >── Product
+                            ├──< Invoice ──< InvoiceLine >── Product
+                            │       └──< PaymentCollection
                             └──< AuditEvent >── User (actor, nullable)
 ```
 
@@ -55,6 +62,19 @@ User ──< Membership >── Organization ──< Role >──< AccessPermiss
 - A role's permission codes come from a shared permission catalog; the role
   itself belongs to one organization.
 - Customer and product records each have a required organization foreign key.
+- Product categories belong to one organization and have case-insensitively
+  unique names within that organization. A product's category is optional so
+  existing and newly created uncategorized products remain valid.
+- Warehouses belong to one organization. Stock movements are append-only,
+  require positive quantities and same-company warehouse/product references;
+  balances are calculated from the movement ledger and stock cannot go below
+  zero.
+- Issued invoices and their lines are immutable; their totals are calculated
+  server-side. Issuing an invoice records stock-out movements for stocked
+  products, while service lines do not affect inventory.
+- Payment collections are append-only and cannot exceed the invoice's
+  remaining balance. Customer, warehouse, product, invoice, and collection
+  references are scoped to the same organization.
 - Product SKU is unique within an organization when non-empty. Sale and cost
   amounts use fixed-precision decimals and database non-negative constraints.
 - The audit actor is nullable so events can remain attributable when an account
@@ -64,9 +84,9 @@ User ──< Membership >── Organization ──< Role >──< AccessPermiss
   PostgreSQL is selected through `DATABASE_URL`.
 
 In the current implementation, `Organization` is the tenant/company boundary.
-Branches and warehouses are not separate database entities yet. Currency,
-tax policy, product stock balances, sales, purchases, and accounting entries
-are also not modeled yet.
+Warehouses are organization-scoped, but branches are not separate database
+entities. Currency configuration, tax policy, purchases, and accounting entries
+are not modeled yet.
 
 ## Authentication and request authorization
 
@@ -82,14 +102,16 @@ are also not modeled yet.
 4. Organization listing uses the authenticated user's active memberships.
    Organization creation assigns the creator the owner role in the same
    transaction that creates its roles and audit event.
-5. Customer and product endpoints require an active membership in the URL's
-   organization and the matching organization-role permission.
+5. Customer, product, inventory, and sales endpoints require an active
+   membership in the URL's organization and the matching organization-role
+   permission.
 6. Tenant-scoped reads filter by both organization ID and the requesting
    user's active membership. The organization ID supplied in a URL is a
    selector, not proof of authorization.
-7. Customer/product creation derives the organization from the authenticated
-   membership, validates input on the server, and writes an audit event in the
-   same database transaction.
+7. Resource creation derives the organization from the authenticated
+   membership, validates input on the server, and writes audit events within
+   the same database transaction. Invoice issue and collection also update
+   their related ledgers atomically.
 8. The current-user response includes only the caller's active memberships and
    the assigned role and permission codes. Authorized members can read the
    selected organization's memberships with `users.manage` and role catalog
@@ -108,6 +130,7 @@ All application API routes use `/api/v1/`.
 | --- | --- |
 | `GET /health/` | Public liveness response |
 | `GET /auth/csrf/` | Initialize a CSRF-protected browser session |
+| `GET /auth/session/` | Return only whether the current session is authenticated |
 | `POST /auth/login/` | CSRF-protected email/password session login |
 | `POST /auth/logout/` | CSRF-protected session logout |
 | `GET /auth/me/` | Return the authenticated profile and active memberships |
@@ -119,6 +142,19 @@ All application API routes use `/api/v1/`.
 | `POST /organizations/{id}/customers/` | Create a customer with `customers.manage` |
 | `GET /organizations/{id}/products/` | List products with `products.read` |
 | `POST /organizations/{id}/products/` | Create a product with `products.manage` |
+| `PATCH /organizations/{id}/products/{product_id}/` | Update a product in the organization with `products.manage` |
+| `GET /organizations/{id}/product-categories/` | List organization product categories with `products.read` |
+| `POST /organizations/{id}/product-categories/` | Create an organization product category with `products.manage` |
+| `GET /organizations/{id}/warehouses/` | List warehouses with `inventory.read` |
+| `POST /organizations/{id}/warehouses/` | Create a warehouse with `inventory.manage` |
+| `GET /organizations/{id}/stock-movements/` | List stock ledger entries with `inventory.read` |
+| `POST /organizations/{id}/stock-movements/` | Record a stock-in or stock-out movement with `inventory.manage` |
+| `GET /organizations/{id}/stock-balances/` | Calculate warehouse/product balances with `inventory.read` |
+| `GET /organizations/{id}/sales-invoices/` | List issued invoices, lines, collections, and balances with `sales.read` |
+| `POST /organizations/{id}/sales-invoices/` | Issue an invoice, calculate its total, and record stock-out with `sales.manage` |
+| `GET /organizations/{id}/sales-invoices/{invoice_id}/` | Read a company-scoped invoice with `sales.read` |
+| `GET /organizations/{id}/sales-invoices/{invoice_id}/payments/` | List collections with `sales.read` |
+| `POST /organizations/{id}/sales-invoices/{invoice_id}/payments/` | Record a collection not exceeding the remaining due with `sales.manage` |
 | `GET /organizations/{id}/members/` | List memberships, assigned roles, and permissions with `users.manage` |
 | `GET /organizations/{id}/roles/` | List organization roles and permission descriptions with `roles.manage` |
 
@@ -148,9 +184,10 @@ The established local database and its data are part of the baseline.
 - The audit model rejects ordinary ORM updates/deletes and the Django admin is
   read-only for events. This is application-level protection, not an
   immutable database ledger; a database administrator can still alter rows.
-- There are currently no customer or product update/archive endpoints,
-  employee invitation flow, role/membership write-management API, sales,
-  purchase, stock, accounting, or reporting workflows.
+- There are currently no customer update/archive endpoints,
+  employee invitation flow, role/membership write-management API, purchases,
+  accounting postings, VAT/e-invoicing, refunds, or reconciliation. Sales
+  reporting is limited to issued invoice totals and their collections.
 - Product prices have two decimal places, but a company currency and exchange
   rate model have not been decided.
 - PostgreSQL is supported by settings and the Psycopg dependency, but current
@@ -167,8 +204,6 @@ editable basic profile fields, active-membership context, and validated
 password changes. The next slice adds read-only organization membership and
 role/permission listings, guarded by the existing organization-scoped
 permissions. It does not replace session authentication, change the membership
-or role models, or provide invitations and write-management actions. Further
-work is paused for review. Before a later sales workflow, agree whether its
-first version is a quotation, an order, or an issued invoice; those are
-different business documents and have different stock and accounting
-consequences.
+or role models, or provide invitations and write-management actions. The
+current MVP issues invoices directly; quotations and order lifecycles remain
+out of scope because they have different stock and accounting consequences.

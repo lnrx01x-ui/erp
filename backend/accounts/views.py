@@ -21,6 +21,13 @@ class CsrfTokenView(APIView):
         return Response({"csrfToken": get_token(request)})
 
 
+class SessionStatusView(APIView):
+    permission_classes = (AllowAny,)
+
+    def get(self, request):
+        return Response({"authenticated": request.user.is_authenticated})
+
+
 @method_decorator(csrf_protect, name="dispatch")
 class LoginView(APIView):
     authentication_classes = ()

@@ -19,6 +19,16 @@ class AuthenticationAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         return response.data["csrfToken"]
 
+    def test_session_status_is_safe_for_authenticated_and_anonymous_sessions(self):
+        anonymous = self.client.get("/api/v1/auth/session/")
+        self.assertEqual(anonymous.status_code, 200)
+        self.assertEqual(anonymous.data, {"authenticated": False})
+
+        self.client.force_authenticate(self.user)
+        authenticated = self.client.get("/api/v1/auth/session/")
+        self.assertEqual(authenticated.status_code, 200)
+        self.assertEqual(authenticated.data, {"authenticated": True})
+
     def test_login_requires_csrf_and_returns_authenticated_user(self):
         response = self.client.post(
             "/api/v1/auth/login/",
@@ -43,6 +53,10 @@ class AuthenticationAPITests(TestCase):
         current_user = self.client.get("/api/v1/auth/me/")
         self.assertEqual(current_user.status_code, 200)
         self.assertEqual(current_user.data["id"], str(self.user.id))
+        self.assertEqual(
+            self.client.get("/api/v1/auth/session/").data,
+            {"authenticated": True},
+        )
 
     def test_login_rejects_an_untrusted_origin(self):
         csrf_token = self.get_csrf_token()
@@ -88,6 +102,10 @@ class AuthenticationAPITests(TestCase):
 
         self.assertEqual(response.status_code, 204)
         self.assertEqual(self.client.get("/api/v1/auth/me/").status_code, 403)
+        self.assertEqual(
+            self.client.get("/api/v1/auth/session/").data,
+            {"authenticated": False},
+        )
 
     def test_current_user_returns_profile_and_only_active_memberships(self):
         organization = create_organization_for_owner(

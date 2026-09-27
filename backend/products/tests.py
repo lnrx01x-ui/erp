@@ -7,7 +7,7 @@ from rest_framework.test import APIClient
 from audit.models import AuditEvent
 from organizations.models import AccessPermission, Membership, Role
 from organizations.services import create_organization_for_owner
-from products.models import Product
+from products.models import Product, ProductCategory
 
 
 class ProductAPITests(TestCase):
@@ -23,6 +23,9 @@ class ProductAPITests(TestCase):
         )
         self.client.force_authenticate(self.user)
         self.url = f"/api/v1/organizations/{self.organization.id}/products/"
+        self.categories_url = (
+            f"/api/v1/organizations/{self.organization.id}/product-categories/"
+        )
 
     def test_owner_can_create_and_list_products_with_audit_event(self):
         response = self.client.post(
@@ -43,6 +46,7 @@ class ProductAPITests(TestCase):
         self.assertEqual(response.data["sku"], "CB-001")
         self.assertEqual(response.data["sale_price"], "12.50")
         self.assertEqual(response.data["cost_price"], "8.25")
+        self.assertIsNone(response.data["category"])
 
         listed = self.client.get(self.url)
         self.assertEqual(listed.status_code, 200)
@@ -178,3 +182,327 @@ class ProductAPITests(TestCase):
         product = Product.objects.get(pk=response.data["id"])
         self.assertEqual(product.sale_price, Decimal("0.10"))
         self.assertEqual(product.cost_price, Decimal("0.03"))
+
+    def test_owner_can_update_product_fields_and_optional_category(self):
+        category = ProductCategory.objects.create(
+            organization=self.organization,
+            name="Beverages",
+        )
+        product = Product.objects.create(
+            organization=self.organization,
+            name="Coffee",
+            sku="OLD-1",
+            description="Old description",
+            unit=Product.Unit.PIECE,
+            sale_price=Decimal("5.00"),
+            cost_price=Decimal("2.00"),
+        )
+
+        response = self.client.patch(
+            f"{self.url}{product.id}/",
+            {
+                "name": "  Ground Coffee ",
+                "sku": " new-1 ",
+                "category": str(category.id),
+                "description": "  Arabica blend ",
+                "unit": "kg",
+                "sale_price": "12.50",
+                "cost_price": "8.25",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["name"], "Ground Coffee")
+        self.assertEqual(response.data["sku"], "NEW-1")
+        self.assertEqual(str(response.data["category"]), str(category.id))
+        self.assertEqual(response.data["description"], "Arabica blend")
+        self.assertEqual(response.data["unit"], "kg")
+        self.assertEqual(response.data["sale_price"], "12.50")
+        self.assertEqual(response.data["cost_price"], "8.25")
+
+        product.refresh_from_db()
+        self.assertEqual(product.category, category)
+        event = AuditEvent.objects.get(
+            action="product.updated",
+            entity_id=str(product.id),
+        )
+        self.assertEqual(event.organization, self.organization)
+        self.assertEqual(event.actor, self.user)
+        self.assertEqual(event.metadata["category_id"], str(category.id))
+
+    def test_product_category_can_be_cleared_during_update(self):
+        category = ProductCategory.objects.create(
+            organization=self.organization,
+            name="Beverages",
+        )
+        product = Product.objects.create(
+            organization=self.organization,
+            category=category,
+            name="Coffee",
+        )
+
+        response = self.client.patch(
+            f"{self.url}{product.id}/",
+            {"category": None},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.data["category"])
+        product.refresh_from_db()
+        self.assertIsNone(product.category)
+
+    def test_read_permission_does_not_allow_product_update(self):
+        product = Product.objects.create(
+            organization=self.organization,
+            name="Protected product",
+            sale_price=Decimal("5.00"),
+        )
+        membership = Membership.objects.get(user=self.user, organization=self.organization)
+        read_only_role = Role.objects.create(
+            organization=self.organization,
+            name="Product reader",
+            code="product-reader",
+        )
+        read_only_role.permissions.add(
+            AccessPermission.objects.get(code="products.read")
+        )
+        membership.role = read_only_role
+        membership.save()
+
+        response = self.client.patch(
+            f"{self.url}{product.id}/",
+            {"name": "Unauthorized update"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        product.refresh_from_db()
+        self.assertEqual(product.name, "Protected product")
+
+    def test_product_update_is_scoped_to_the_active_organization(self):
+        product = Product.objects.create(
+            organization=self.organization,
+            name="Private product",
+        )
+        other_user = get_user_model().objects.create_user(
+            email="other@example.test",
+            password="unused-test-password",
+        )
+        other_organization = create_organization_for_owner(
+            name="Other Company",
+            actor=other_user,
+        )
+        self.client.force_authenticate(other_user)
+
+        foreign_organization_response = self.client.patch(
+            f"/api/v1/organizations/{self.organization.id}/products/{product.id}/",
+            {"name": "Unauthorized"},
+            format="json",
+        )
+        foreign_product_response = self.client.patch(
+            f"/api/v1/organizations/{other_organization.id}/products/{product.id}/",
+            {"name": "Unauthorized"},
+            format="json",
+        )
+
+        self.assertEqual(foreign_organization_response.status_code, 403)
+        self.assertEqual(foreign_product_response.status_code, 404)
+        product.refresh_from_db()
+        self.assertEqual(product.name, "Private product")
+
+    def test_product_update_rejects_duplicate_sku_without_changing_the_row(self):
+        Product.objects.create(
+            organization=self.organization,
+            name="Existing product",
+            sku="USED-1",
+        )
+        product = Product.objects.create(
+            organization=self.organization,
+            name="Editable product",
+            sku="EDIT-1",
+            sale_price=Decimal("10.00"),
+        )
+
+        response = self.client.patch(
+            f"{self.url}{product.id}/",
+            {"sku": " used-1 ", "sale_price": "-1"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        product.refresh_from_db()
+        self.assertEqual(product.sku, "EDIT-1")
+        self.assertEqual(product.sale_price, Decimal("10.00"))
+
+    def test_owner_can_create_and_list_company_categories_with_audit_event(self):
+        response = self.client.post(
+            self.categories_url,
+            {"name": "  Beverages  "},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["name"], "Beverages")
+
+        listed = self.client.get(self.categories_url)
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual([item["id"] for item in listed.data], [response.data["id"]])
+        event = AuditEvent.objects.get(
+            action="product_category.created",
+            entity_id=response.data["id"],
+        )
+        self.assertEqual(event.organization, self.organization)
+        self.assertEqual(event.actor, self.user)
+
+    def test_category_names_are_unique_per_company_case_insensitively(self):
+        first = self.client.post(
+            self.categories_url,
+            {"name": "Beverages"},
+            format="json",
+        )
+        duplicate = self.client.post(
+            self.categories_url,
+            {"name": " beverages "},
+            format="json",
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(duplicate.status_code, 400)
+        self.assertIn("name", duplicate.data)
+
+    def test_category_can_be_assigned_to_product_and_returned_in_product_list(self):
+        category_response = self.client.post(
+            self.categories_url,
+            {"name": "Beverages"},
+            format="json",
+        )
+
+        response = self.client.post(
+            self.url,
+            {"name": "Coffee", "category": category_response.data["id"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            str(response.data["category"]),
+            category_response.data["id"],
+        )
+        listed = self.client.get(self.url)
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(
+            str(listed.data[0]["category"]),
+            category_response.data["id"],
+        )
+
+    def test_product_cannot_use_another_companys_category(self):
+        other_user = get_user_model().objects.create_user(
+            email="other@example.test",
+            password="unused-test-password",
+        )
+        other_organization = create_organization_for_owner(
+            name="Other Company",
+            actor=other_user,
+        )
+        other_category = ProductCategory.objects.create(
+            organization=other_organization,
+            name="Private category",
+        )
+
+        response = self.client.post(
+            self.url,
+            {"name": "Invalid assignment", "category": str(other_category.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("category", response.data)
+        self.assertFalse(Product.objects.filter(name="Invalid assignment").exists())
+
+    def test_same_category_name_can_be_used_by_another_company(self):
+        first = self.client.post(
+            self.categories_url,
+            {"name": "Shared name"},
+            format="json",
+        )
+        other_user = get_user_model().objects.create_user(
+            email="other@example.test",
+            password="unused-test-password",
+        )
+        other_organization = create_organization_for_owner(
+            name="Other Company",
+            actor=other_user,
+        )
+        self.client.force_authenticate(other_user)
+        other_url = (
+            f"/api/v1/organizations/{other_organization.id}/product-categories/"
+        )
+
+        second = self.client.post(
+            other_url,
+            {"name": "Shared name"},
+            format="json",
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        self.assertNotEqual(first.data["id"], second.data["id"])
+
+    def test_categories_are_isolated_between_companies(self):
+        own_category = self.client.post(
+            self.categories_url,
+            {"name": "Own category"},
+            format="json",
+        )
+        other_user = get_user_model().objects.create_user(
+            email="other@example.test",
+            password="unused-test-password",
+        )
+        other_organization = create_organization_for_owner(
+            name="Other Company",
+            actor=other_user,
+        )
+        other_category_url = (
+            f"/api/v1/organizations/{other_organization.id}/product-categories/"
+        )
+        denied_read = self.client.get(other_category_url)
+        self.client.force_authenticate(other_user)
+
+        listed = self.client.get(other_category_url)
+        denied_create = self.client.post(
+            self.categories_url,
+            {"name": "Unauthorized"},
+            format="json",
+        )
+
+        self.assertEqual(own_category.status_code, 201)
+        self.assertEqual(denied_read.status_code, 403)
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.data, [])
+        self.assertEqual(denied_create.status_code, 403)
+
+    def test_product_read_permission_does_not_allow_category_creation(self):
+        membership = Membership.objects.get(user=self.user, organization=self.organization)
+        read_only_role = Role.objects.create(
+            organization=self.organization,
+            name="Product reader",
+            code="product-reader",
+        )
+        read_only_role.permissions.add(
+            AccessPermission.objects.get(code="products.read")
+        )
+        membership.role = read_only_role
+        membership.save()
+
+        listed = self.client.get(self.categories_url)
+        created = self.client.post(
+            self.categories_url,
+            {"name": "Not allowed"},
+            format="json",
+        )
+
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(created.status_code, 403)
+        self.assertEqual(ProductCategory.objects.count(), 0)
