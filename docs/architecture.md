@@ -91,8 +91,9 @@ are also not modeled yet.
    membership, validates input on the server, and writes an audit event in the
    same database transaction.
 8. The current-user response includes only the caller's active memberships and
-   the assigned role and permission codes. Role and membership administration
-   is not exposed by this API.
+   the assigned role and permission codes. Authorized members can read the
+   selected organization's memberships with `users.manage` and role catalog
+   with `roles.manage`; these endpoints do not support writes.
 
 Tenant isolation is currently enforced by Django view querysets and permission
 checks. PostgreSQL Row-Level Security is **not** enabled. Do not add a
@@ -118,6 +119,8 @@ All application API routes use `/api/v1/`.
 | `POST /organizations/{id}/customers/` | Create a customer with `customers.manage` |
 | `GET /organizations/{id}/products/` | List products with `products.read` |
 | `POST /organizations/{id}/products/` | Create a product with `products.manage` |
+| `GET /organizations/{id}/members/` | List memberships, assigned roles, and permissions with `users.manage` |
+| `GET /organizations/{id}/roles/` | List organization roles and permission descriptions with `roles.manage` |
 
 There is no public self-registration endpoint. The first local user is created
 with Django's `createsuperuser` command.
@@ -146,8 +149,8 @@ The established local database and its data are part of the baseline.
   read-only for events. This is application-level protection, not an
   immutable database ledger; a database administrator can still alter rows.
 - There are currently no customer or product update/archive endpoints,
-  employee invitation flow, role/membership management API, sales, purchase, stock,
-  accounting, or reporting workflows.
+  employee invitation flow, role/membership write-management API, sales,
+  purchase, stock, accounting, or reporting workflows.
 - Product prices have two decimal places, but a company currency and exchange
   rate model have not been decided.
 - PostgreSQL is supported by settings and the Psycopg dependency, but current
@@ -161,9 +164,11 @@ The established local database and its data are part of the baseline.
 M1 records the working architecture and non-negotiable compatibility rules.
 The first M2 slice adds optional phone data through an additive migration,
 editable basic profile fields, active-membership context, and validated
-password changes. It does not replace session authentication, alter existing
-organization membership/role models, or provide invitations and role
-administration. Further work is paused for review. Before a later sales
-workflow, agree whether its first version is a quotation, an order, or an
-issued invoice; those are different business documents and have different
-stock and accounting consequences.
+password changes. The next slice adds read-only organization membership and
+role/permission listings, guarded by the existing organization-scoped
+permissions. It does not replace session authentication, change the membership
+or role models, or provide invitations and write-management actions. Further
+work is paused for review. Before a later sales workflow, agree whether its
+first version is a quotation, an order, or an issued invoice; those are
+different business documents and have different stock and accounting
+consequences.

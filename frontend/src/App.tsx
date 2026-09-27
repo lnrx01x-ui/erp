@@ -37,8 +37,29 @@ type Product = {
   cost_price: string;
   created_at: string;
 };
+type OrganizationMember = {
+  id: string;
+  user: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    phone: string;
+    isActive: boolean;
+  };
+  role: OrganizationRole;
+  is_active: boolean;
+  joined_at: string;
+};
+type OrganizationRole = {
+  id: string;
+  code: string;
+  name: string;
+  is_system: boolean;
+  permissions: { code: string; name: string; description: string }[];
+};
 type LoginResponse = { user: User; csrfToken: string };
-type OrganizationSection = "customers" | "products";
+type OrganizationSection = "customers" | "products" | "members" | "roles";
 
 const productUnits = [
   { value: "piece", label: "قطعة" },
@@ -83,6 +104,8 @@ export default function App() {
     useState<OrganizationSection>("customers");
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [organizationMembers, setOrganizationMembers] = useState<OrganizationMember[]>([]);
+  const [organizationRoles, setOrganizationRoles] = useState<OrganizationRole[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -111,6 +134,24 @@ export default function App() {
     if (!response.ok) throw new Error(await responseError(response));
     const items: Product[] = await response.json();
     setProducts(items);
+  }, []);
+
+  const loadOrganizationMembers = useCallback(async (organizationId: string) => {
+    const response = await fetch(
+      `/api/v1/organizations/${encodeURIComponent(organizationId)}/members/`,
+    );
+    if (!response.ok) throw new Error(await responseError(response));
+    const items: OrganizationMember[] = await response.json();
+    setOrganizationMembers(items);
+  }, []);
+
+  const loadOrganizationRoles = useCallback(async (organizationId: string) => {
+    const response = await fetch(
+      `/api/v1/organizations/${encodeURIComponent(organizationId)}/roles/`,
+    );
+    if (!response.ok) throw new Error(await responseError(response));
+    const items: OrganizationRole[] = await response.json();
+    setOrganizationRoles(items);
   }, []);
 
   useEffect(() => {
@@ -255,6 +296,44 @@ export default function App() {
         caught instanceof Error
           ? caught.message
           : "تعذر تحميل المنتجات. حاول مرة أخرى.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleOpenMembers(organization: Organization) {
+    setError("");
+    setIsSubmitting(true);
+    try {
+      await loadOrganizationMembers(organization.id);
+      setSelectedOrganizationId(organization.id);
+      setIsAccountView(false);
+      setOrganizationSection("members");
+    } catch (caught: unknown) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "تعذر تحميل أعضاء الشركة. حاول مرة أخرى.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleOpenRoles(organization: Organization) {
+    setError("");
+    setIsSubmitting(true);
+    try {
+      await loadOrganizationRoles(organization.id);
+      setSelectedOrganizationId(organization.id);
+      setIsAccountView(false);
+      setOrganizationSection("roles");
+    } catch (caught: unknown) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "تعذر تحميل أدوار الشركة. حاول مرة أخرى.",
       );
     } finally {
       setIsSubmitting(false);
@@ -450,6 +529,13 @@ export default function App() {
   const selectedOrganization =
     organizations.find((organization) => organization.id === selectedOrganizationId) ??
     null;
+  const selectedOrganizationMembership = user?.memberships.find(
+    (membership) => membership.organizationId === selectedOrganizationId,
+  );
+  const canManageMembers =
+    selectedOrganizationMembership?.permissions.includes("users.manage") ?? false;
+  const canManageRoles =
+    selectedOrganizationMembership?.permissions.includes("roles.manage") ?? false;
 
   if (isLoading) {
     return (
@@ -558,6 +644,56 @@ export default function App() {
           <span className="nav-icon">▤</span>
           المنتجات
         </a>
+        {organizations.some((organization) =>
+          user?.memberships.some(
+            (membership) =>
+              membership.organizationId === organization.id &&
+              membership.permissions.includes("users.manage"),
+          ),
+        ) && (
+          <a
+            className={`nav-item ${selectedOrganization && organizationSection === "members" ? "nav-item-active" : "nav-item-muted"}`}
+            href="#organizations"
+            onClick={() => {
+              const manageableOrganization = organizations.find((organization) =>
+                user?.memberships.some(
+                  (membership) =>
+                    membership.organizationId === organization.id &&
+                    membership.permissions.includes("users.manage"),
+                ),
+              );
+              if (manageableOrganization) void handleOpenMembers(manageableOrganization);
+            }}
+          >
+            <span className="nav-icon">♙</span>
+            أعضاء الشركة
+          </a>
+        )}
+        {organizations.some((organization) =>
+          user?.memberships.some(
+            (membership) =>
+              membership.organizationId === organization.id &&
+              membership.permissions.includes("roles.manage"),
+          ),
+        ) && (
+          <a
+            className={`nav-item ${selectedOrganization && organizationSection === "roles" ? "nav-item-active" : "nav-item-muted"}`}
+            href="#organizations"
+            onClick={() => {
+              const manageableOrganization = organizations.find((organization) =>
+                user?.memberships.some(
+                  (membership) =>
+                    membership.organizationId === organization.id &&
+                    membership.permissions.includes("roles.manage"),
+                ),
+              );
+              if (manageableOrganization) void handleOpenRoles(manageableOrganization);
+            }}
+          >
+            <span className="nav-icon">♧</span>
+            الأدوار والصلاحيات
+          </a>
+        )}
         <a
           className={`nav-item ${isAccountView ? "nav-item-active" : "nav-item-muted"}`}
           href="#account"
@@ -829,6 +965,30 @@ export default function App() {
                 >
                   المنتجات
                 </button>
+                {canManageMembers && (
+                  <button
+                    className={`module-tab ${organizationSection === "members" ? "module-tab-active" : ""}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={organizationSection === "members"}
+                    onClick={() => void handleOpenMembers(selectedOrganization)}
+                    disabled={isSubmitting}
+                  >
+                    الأعضاء
+                  </button>
+                )}
+                {canManageRoles && (
+                  <button
+                    className={`module-tab ${organizationSection === "roles" ? "module-tab-active" : ""}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={organizationSection === "roles"}
+                    onClick={() => void handleOpenRoles(selectedOrganization)}
+                    disabled={isSubmitting}
+                  >
+                    الأدوار والصلاحيات
+                  </button>
+                )}
               </div>
               {organizationSection === "customers" ? (
                 <>
@@ -937,7 +1097,7 @@ export default function App() {
                 </div>
               )}
                 </>
-              ) : (
+              ) : organizationSection === "products" ? (
                 <>
                   <div className="section-heading">
                     <div>
@@ -1078,6 +1238,163 @@ export default function App() {
                     </div>
                   )}
                 </>
+              ) : organizationSection === "members" ? (
+                <>
+                  <div className="section-heading">
+                    <div>
+                      <button
+                        className="back-button"
+                        type="button"
+                        onClick={() => {
+                          setSelectedOrganizationId(null);
+                          setOrganizationMembers([]);
+                          setError("");
+                        }}
+                      >
+                        ← الشركات
+                      </button>
+                      <h2>أعضاء {selectedOrganization.name}</h2>
+                      <p>
+                        بيانات أعضاء هذه الشركة وأدوارهم فقط. هذه الشاشة للعرض
+                        دون تعديل العضويات.
+                      </p>
+                    </div>
+                    <span className="count-badge">{organizationMembers.length}</span>
+                  </div>
+
+                  {organizationMembers.length > 0 ? (
+                    <div className="membership-list">
+                      {organizationMembers.map((membership) => (
+                        <article className="membership-card" key={membership.id}>
+                          <span className="organization-icon">ع</span>
+                          <div className="membership-details">
+                            <div className="member-heading">
+                              <div>
+                                <h3>
+                                  {`${membership.user.firstName} ${membership.user.lastName}`.trim() ||
+                                    membership.user.email}
+                                </h3>
+                                <p>
+                                  {membership.user.email}
+                                  {membership.user.phone && ` · ${membership.user.phone}`}
+                                </p>
+                              </div>
+                              <span
+                                className={`membership-status ${membership.is_active && membership.user.isActive ? "membership-status-active" : "membership-status-inactive"}`}
+                              >
+                                {membership.is_active && membership.user.isActive
+                                  ? "نشط"
+                                  : "غير نشط"}
+                              </span>
+                            </div>
+                            <p>
+                              الدور: {membership.role.name}
+                              {membership.role.is_system && " · دور أساسي"}
+                            </p>
+                            <div className="permission-tags">
+                              {membership.role.permissions.length > 0 ? (
+                                membership.role.permissions.map((permission) => (
+                                  <span
+                                    className="permission-tag"
+                                    key={permission.code}
+                                    title={permission.description || permission.name}
+                                  >
+                                    {permission.code}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="member-empty-permissions">
+                                  لا توجد صلاحيات مخصصة
+                                </span>
+                              )}
+                            </div>
+                            <p className="member-joined">
+                              تاريخ الانضمام:{" "}
+                              {new Intl.DateTimeFormat("ar-EG", {
+                                dateStyle: "medium",
+                              }).format(new Date(membership.joined_at))}
+                            </p>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="empty-state">
+                      <span className="empty-state-icon">♙</span>
+                      <h3>لا يوجد أعضاء في هذه الشركة</h3>
+                      <p>ستظهر العضويات هنا عند إضافتها في خطوة لاحقة.</p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="section-heading">
+                    <div>
+                      <button
+                        className="back-button"
+                        type="button"
+                        onClick={() => {
+                          setSelectedOrganizationId(null);
+                          setOrganizationRoles([]);
+                          setError("");
+                        }}
+                      >
+                        ← الشركات
+                      </button>
+                      <h2>الأدوار والصلاحيات · {selectedOrganization.name}</h2>
+                      <p>
+                        كتالوج الأدوار والصلاحيات المعتمد لهذه الشركة. التعديل
+                        غير متاح في هذه المرحلة.
+                      </p>
+                    </div>
+                    <span className="count-badge">{organizationRoles.length}</span>
+                  </div>
+
+                  {organizationRoles.length > 0 ? (
+                    <div className="role-list">
+                      {organizationRoles.map((role) => (
+                        <article className="role-card" key={role.id}>
+                          <div className="role-heading">
+                            <div>
+                              <h3>{role.name}</h3>
+                              <span className="role-code">{role.code}</span>
+                            </div>
+                            {role.is_system && (
+                              <span className="module-state state-ready">
+                                دور أساسي
+                              </span>
+                            )}
+                          </div>
+                          <div className="role-permission-list">
+                            {role.permissions.length > 0 ? (
+                              role.permissions.map((permission) => (
+                                <div className="role-permission" key={permission.code}>
+                                  <span className="permission-tag">{permission.code}</span>
+                                  <span>{permission.name}</span>
+                                  {permission.description && (
+                                    <span className="role-permission-description">
+                                      {permission.description}
+                                    </span>
+                                  )}
+                                </div>
+                              ))
+                            ) : (
+                              <p className="member-empty-permissions">
+                                لا توجد صلاحيات مخصصة لهذا الدور.
+                              </p>
+                            )}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="empty-state">
+                      <span className="empty-state-icon">♧</span>
+                      <h3>لا توجد أدوار لهذه الشركة</h3>
+                      <p>ستظهر الأدوار المعرفة للشركة هنا.</p>
+                    </div>
+                  )}
+                </>
               )}
             </>
           ) : (
@@ -1117,22 +1434,48 @@ export default function App() {
                         <h3>{organization.name}</h3>
                         <p>شركة · عضويتك مفعّلة</p>
                       </div>
-                      <button
-                        className="secondary-button"
-                        type="button"
-                        onClick={() => void handleOpenCustomers(organization)}
-                        disabled={isSubmitting}
-                      >
-                        إدارة العملاء
-                      </button>
-                      <button
-                        className="secondary-button"
-                        type="button"
-                        onClick={() => void handleOpenProducts(organization)}
-                        disabled={isSubmitting}
-                      >
-                        إدارة المنتجات
-                      </button>
+                      <div className="organization-actions">
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={() => void handleOpenCustomers(organization)}
+                          disabled={isSubmitting}
+                        >
+                          إدارة العملاء
+                        </button>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={() => void handleOpenProducts(organization)}
+                          disabled={isSubmitting}
+                        >
+                          إدارة المنتجات
+                        </button>
+                        {user?.memberships
+                          .find((membership) => membership.organizationId === organization.id)
+                          ?.permissions.includes("users.manage") && (
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => void handleOpenMembers(organization)}
+                            disabled={isSubmitting}
+                          >
+                            أعضاء الشركة
+                          </button>
+                        )}
+                        {user?.memberships
+                          .find((membership) => membership.organizationId === organization.id)
+                          ?.permissions.includes("roles.manage") && (
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => void handleOpenRoles(organization)}
+                            disabled={isSubmitting}
+                          >
+                            الأدوار والصلاحيات
+                          </button>
+                        )}
+                      </div>
                       <span className="module-state state-ready">نشطة</span>
                     </article>
                   ))}

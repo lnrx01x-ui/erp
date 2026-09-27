@@ -388,6 +388,30 @@ p {
   background: #fff;
 }
 
+.member-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.membership-status {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 9px;
+}
+
+.membership-status-active {
+  background: #e8f7f0;
+  color: #16845f;
+}
+
+.membership-status-inactive {
+  background: #f1f2f5;
+  color: #737b8b;
+}
+
 .membership-details {
   min-width: 0;
   flex: 1;
@@ -419,6 +443,66 @@ p {
   color: #5148d9;
   direction: ltr;
   font-family: Consolas, monospace;
+  font-size: 9px;
+}
+
+.membership-details .member-joined,
+.member-empty-permissions {
+  margin: 9px 0 0;
+  color: #858da0;
+  font-size: 9px;
+}
+
+.role-list {
+  display: grid;
+  gap: 10px;
+}
+
+.role-card {
+  padding: 15px 16px;
+  border: 1px solid #e9ecf2;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.role-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 13px;
+}
+
+.role-heading h3 {
+  margin: 0 0 5px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.role-code {
+  color: #858da0;
+  direction: ltr;
+  font-family: Consolas, monospace;
+  font-size: 9px;
+}
+
+.role-permission-list {
+  display: grid;
+  gap: 8px;
+}
+
+.role-permission {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 7px;
+  color: #596276;
+  font-size: 10px;
+}
+
+.role-permission-description {
+  flex-basis: 100%;
+  color: #858da0;
   font-size: 9px;
 }
 
@@ -584,6 +668,13 @@ p {
   margin-right: auto;
 }
 
+.organization-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-right: auto;
+}
+
 .secondary-button,
 .back-button {
   border: 1px solid #e2e4f5;
@@ -598,7 +689,6 @@ p {
 
 .secondary-button {
   min-height: 32px;
-  margin-right: auto;
   padding: 0 11px;
 }
 

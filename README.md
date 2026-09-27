@@ -12,9 +12,10 @@ A private, modular-monolith ERP foundation using Django REST Framework, PostgreS
 - Organization-scoped API listing and organization creation.
 - Organization-scoped customer listing and creation with tenant permissions.
 - Organization-scoped product catalogs with unique per-company SKUs, unit of measure, and decimal prices.
+- Read-only organization member listings with assigned roles and permissions, plus a read-only role catalog.
 - Append-only audit events for organization creation.
 - CSRF-protected session login/logout, current-user, and password-change endpoints.
-- A React dashboard for signing in, managing organizations, customers, products, and account settings.
+- A React dashboard for signing in, managing organizations, customers, products, and account settings, and viewing organization members and roles.
 - SQLite fallback for zero-cost local development; PostgreSQL is the intended database and can be selected with `DATABASE_URL`.
 
 This is a starting foundation, not a production-ready ERP. Public registration, operational modules, deployment, backups, and a production security review are not included yet.
@@ -93,10 +94,14 @@ Vite proxies `/api` requests to `http://127.0.0.1:8000`.
 - `POST /api/v1/organizations/{organization_id}/customers/` — create a customer and audit event if the active organization role grants `customers.manage`.
 - `GET /api/v1/organizations/{organization_id}/products/` — list products if the active organization role grants `products.read`.
 - `POST /api/v1/organizations/{organization_id}/products/` — create a product and audit event if the active organization role grants `products.manage`.
+- `GET /api/v1/organizations/{organization_id}/members/` — list organization memberships, assigned roles, and permissions if the active role grants `users.manage`.
+- `GET /api/v1/organizations/{organization_id}/roles/` — list that organization's roles and permission descriptions if the active role grants `roles.manage`.
 
 The product catalog stores product/service details, SKU, unit, sale price, and cost price. Inventory quantities and movements are deliberately handled by the future inventory module.
 
-API authentication uses Django sessions and CSRF protection for login and other state-changing requests. Passwords are hashed by Django and checked against the configured validators on password change. Create the first user with `createsuperuser`, then sign in through the frontend; user self-registration and membership administration are intentionally not enabled. Profile endpoints never accept email, role, membership, or permission changes.
+API authentication uses Django sessions and CSRF protection for login and other state-changing requests. Passwords are hashed by Django and checked against the configured validators on password change. Create the first user with `createsuperuser`, then sign in through the frontend; user self-registration and membership write-management are intentionally not enabled. Profile endpoints never accept email, role, membership, or permission changes.
+
+Organization member and role endpoints are read-only. They enforce the requested company's active-membership permission server-side; no invitations, membership changes, or role/permission edits are available.
 
 ## Dependency and IP hygiene
 
