@@ -52,7 +52,7 @@ class Product(models.Model):
     )
     category = models.ForeignKey(
         ProductCategory,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="products",
         null=True,
         blank=True,

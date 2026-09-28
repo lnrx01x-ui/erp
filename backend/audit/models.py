@@ -20,7 +20,7 @@ class AuditEvent(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(
         "organizations.Organization",
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         related_name="audit_events",
     )
     actor = models.ForeignKey(

@@ -24,18 +24,18 @@ class Invoice(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(
         "organizations.Organization",
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         related_name="sales_invoices",
     )
     number = models.CharField(max_length=32)
     customer = models.ForeignKey(
         "customers.Customer",
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="sales_invoices",
     )
     warehouse = models.ForeignKey(
         "inventory.Warehouse",
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="sales_invoices",
     )
     issue_date = models.DateField(default=timezone.localdate)
@@ -104,7 +104,7 @@ class InvoiceLine(models.Model):
     )
     product = models.ForeignKey(
         "products.Product",
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="sales_invoice_lines",
     )
     product_name = models.CharField(max_length=160)
@@ -165,12 +165,12 @@ class PaymentCollection(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(
         "organizations.Organization",
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         related_name="sales_payment_collections",
     )
     invoice = models.ForeignKey(
         Invoice,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="payments",
     )
     amount = models.DecimalField(max_digits=14, decimal_places=2)

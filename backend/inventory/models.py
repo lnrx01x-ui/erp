@@ -65,17 +65,17 @@ class StockMovement(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(
         "organizations.Organization",
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         related_name="stock_movements",
     )
     warehouse = models.ForeignKey(
         Warehouse,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="stock_movements",
     )
     product = models.ForeignKey(
         "products.Product",
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="stock_movements",
     )
     direction = models.CharField(max_length=3, choices=Direction.choices)

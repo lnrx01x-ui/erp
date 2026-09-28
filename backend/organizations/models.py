@@ -72,7 +72,7 @@ class Membership(models.Model):
     )
     role = models.ForeignKey(
         Role,
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         related_name="memberships",
     )
     is_active = models.BooleanField(default=True)
