@@ -1,5 +1,4 @@
-from django.db import transaction
-from rest_framework.generics import DestroyAPIView, ListCreateAPIView, ListAPIView
+from rest_framework.generics import ListCreateAPIView, ListAPIView
 from rest_framework.permissions import IsAuthenticated
 
 from .models import Membership, Organization, Role
@@ -28,25 +27,6 @@ class OrganizationListCreateView(ListCreateAPIView):
             actor=self.request.user,
         )
         serializer.instance = organization
-
-
-class OrganizationDeleteView(DestroyAPIView):
-    permission_classes = (IsAuthenticated, HasOrganizationPermission)
-    lookup_url_kwarg = "organization_id"
-
-    def get_permissions(self):
-        self.required_permission_code = "organization.manage"
-        return super().get_permissions()
-
-    def get_queryset(self):
-        return Organization.objects.filter(
-            memberships__user=self.request.user,
-            memberships__is_active=True,
-        ).distinct()
-
-    @transaction.atomic
-    def perform_destroy(self, instance):
-        instance.delete()
 
 
 class OrganizationMembershipListView(ListAPIView):

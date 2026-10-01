@@ -412,59 +412,6 @@ export default function App() {
     }
   }
 
-  async function handleDeleteOrganization(organization: Organization) {
-    const confirmed = window.confirm(
-      `هل أنت متأكد من حذف شركة "${organization.name}"؟ سيتم حذف جميع بياناتها ولا يمكن التراجع عن ذلك.`,
-    );
-    if (!confirmed) return;
-
-    setError("");
-    setNotice("");
-    setIsSubmitting(true);
-    try {
-      const response = await fetch(
-        `/api/v1/organizations/${encodeURIComponent(organization.id)}/`,
-        {
-          method: "DELETE",
-          headers: { "X-CSRFToken": csrfToken },
-        },
-      );
-      if (!response.ok) throw new Error(await responseError(response));
-      setOrganizations((current) =>
-        current.filter((item) => item.id !== organization.id),
-      );
-      setUser((current) =>
-        current
-          ? {
-              ...current,
-              memberships: current.memberships.filter(
-                (membership) => membership.organizationId !== organization.id,
-              ),
-            }
-          : current,
-      );
-      if (selectedOrganizationId === organization.id) {
-        setSelectedOrganizationId(null);
-        setCustomers([]);
-        setProducts([]);
-        setProductCategories([]);
-        setWarehouses([]);
-        setStockMovements([]);
-        setStockBalances([]);
-        setSalesInvoices([]);
-        setOrganizationMembers([]);
-        setOrganizationRoles([]);
-      }
-      setNotice("تم حذف الشركة وبياناتها المرتبطة.");
-    } catch (caught: unknown) {
-      setError(
-        caught instanceof Error ? caught.message : "تعذر حذف الشركة.",
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
   async function handleOpenCustomers(organization: Organization) {
     setError("");
     setIsSubmitting(true);
@@ -2909,18 +2856,6 @@ export default function App() {
                         <p>شركة · عضويتك مفعّلة</p>
                       </div>
                       <div className="organization-actions">
-                        {user?.memberships
-                          .find((membership) => membership.organizationId === organization.id)
-                          ?.permissions.includes("organization.manage") && (
-                          <button
-                            className="danger-button"
-                            type="button"
-                            onClick={() => void handleDeleteOrganization(organization)}
-                            disabled={isSubmitting}
-                          >
-                            حذف الشركة
-                          </button>
-                        )}
                         <button
                           className="secondary-button"
                           type="button"

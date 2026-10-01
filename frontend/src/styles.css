@@ -703,27 +703,6 @@ p {
   opacity: 0.6;
 }
 
-.danger-button {
-  min-height: 32px;
-  padding: 0 11px;
-  border: 1px solid #f1b8b8;
-  border-radius: 7px;
-  background: #fff5f5;
-  color: #b42318;
-  font: inherit;
-  cursor: pointer;
-}
-
-.danger-button:hover:not(:disabled) {
-  border-color: #dc7a7a;
-  background: #ffe8e8;
-}
-
-.danger-button:disabled {
-  cursor: wait;
-  opacity: 0.6;
-}
-
 .back-button {
   margin-bottom: 7px;
   padding: 5px 9px;
