@@ -157,6 +157,10 @@ PUBLIC_APP_URL = os.environ.get(
     "PUBLIC_APP_URL",
     "http://localhost:5173" if DEBUG else "",
 ).rstrip("/")
+REQUIRE_EMAIL_VERIFICATION = os.environ.get(
+    "DJANGO_REQUIRE_EMAIL_VERIFICATION",
+    "False",
+).lower() in {"1", "true", "yes"}
 EMAIL_BACKEND = os.environ.get(
     "DJANGO_EMAIL_BACKEND",
     "django.core.mail.backends.console.EmailBackend"
@@ -178,9 +182,10 @@ EMAIL_USE_SSL = os.environ.get("DJANGO_EMAIL_USE_SSL", "False").lower() in {
     "yes",
 }
 EMAIL_TIMEOUT = int(os.environ.get("DJANGO_EMAIL_TIMEOUT", "10"))
-DEFAULT_FROM_EMAIL = os.environ.get(
-    "DJANGO_DEFAULT_FROM_EMAIL",
-    "no-reply@nasaq.local" if DEBUG else "",
+DEFAULT_FROM_EMAIL = (
+    os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "").strip()
+    or (EMAIL_HOST_USER if "@" in EMAIL_HOST_USER else "")
+    or ("no-reply@nasaq.local" if DEBUG else "")
 )
 
 if not DEBUG:

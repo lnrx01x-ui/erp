@@ -148,6 +148,16 @@ class RegistrationView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             raise
+        if not settings.REQUIRE_EMAIL_VERIFICATION:
+            login(request, user)
+            return Response(
+                {
+                    "user": CurrentUserSerializer(user).data,
+                    "csrfToken": get_token(request),
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
         send_email_verification(user)
         return Response(
             {

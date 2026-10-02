@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
@@ -80,7 +81,7 @@ class RegistrationSerializer(serializers.Serializer):
         user = User.objects.create_user(
             email=validated_data["email"],
             password=password,
-            is_active=False,
+            is_active=not settings.REQUIRE_EMAIL_VERIFICATION,
             email_verified=False,
             first_name=validated_data["firstName"],
             last_name=validated_data.get("lastName", ""),

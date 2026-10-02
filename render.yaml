@@ -12,6 +12,8 @@ services:
         generateValue: true
       - key: DJANGO_BEHIND_TRUSTED_HTTPS_PROXY
         value: "True"
+      - key: DJANGO_REQUIRE_EMAIL_VERIFICATION
+        value: "False"
       - key: DJANGO_ALLOWED_HOSTS
         sync: false
       - key: DJANGO_CSRF_TRUSTED_ORIGINS

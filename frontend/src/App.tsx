@@ -452,9 +452,25 @@ export default function App() {
         }),
       });
       if (!response.ok) throw new Error(await responseError(response));
-      const result: { detail: string } = await response.json();
-      setAuthView("login");
-      setNotice(result.detail);
+      const result: LoginResponse | { detail: string } = await response.json();
+      if ("user" in result) {
+        setUser(result.user);
+        setCsrfToken(result.csrfToken);
+        setIsAccountView(false);
+        setAuthView("login");
+        try {
+          await loadOrganizations();
+        } catch (caught: unknown) {
+          setError(
+            caught instanceof Error
+              ? `تم إنشاء الحساب وتسجيل الدخول، لكن تعذر تحميل الشركات. ${caught.message}`
+              : "تم إنشاء الحساب وتسجيل الدخول، لكن تعذر تحميل الشركات. حدّث الصفحة.",
+          );
+        }
+      } else {
+        setAuthView("login");
+        setNotice(result.detail);
+      }
     } catch (caught: unknown) {
       setError(
         caught instanceof Error ? caught.message : "تعذر إنشاء الحساب. حاول مرة أخرى.",

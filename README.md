@@ -21,7 +21,7 @@
 - Append-only audit events for organization creation, stock movements, invoice issue, and collections.
 - CSRF-protected session login/logout, current-user, and password-change endpoints.
 - CSRF-protected password-reset requests with single-use, expiring tokens and SMTP delivery.
-- Public account registration that creates an inactive account and typed company/restaurant in Egypt or Saudi Arabia, then requires email verification before login; registration and verification resend are rate-limited.
+- Public account registration that creates a typed company/restaurant in Egypt or Saudi Arabia; email verification is optional and disabled by default, while registration and verification resend remain rate-limited.
 - A React dashboard for signing in, managing organizations, customers, products, inventory, sales invoices, collections, and account settings, and viewing organization members and roles.
 - SQLite fallback for zero-cost local development; PostgreSQL is the intended database and can be selected with `DATABASE_URL`.
 
@@ -151,6 +151,8 @@ Set these values in Render's environment dashboard; never commit their real
 values:
 
 - `DJANGO_DEBUG=False` and `DJANGO_SECRET_KEY` (Render can generate the key).
+- `DJANGO_REQUIRE_EMAIL_VERIFICATION=False` for immediate account activation
+  without a verification email (the beta default).
 - `DJANGO_ALLOWED_HOSTS` to the exact assigned Render hostname, without a
   scheme, for example `your-service.onrender.com`.
 - `DJANGO_CSRF_TRUSTED_ORIGINS` and `PUBLIC_APP_URL` to the HTTPS site origin,
@@ -162,7 +164,9 @@ values:
   `sslmode=disable`.
 - Working SMTP settings (`DJANGO_EMAIL_HOST`, `DJANGO_EMAIL_HOST_USER`,
   `DJANGO_EMAIL_HOST_PASSWORD`, and `DJANGO_DEFAULT_FROM_EMAIL`) so account
-  verification and password resets can deliver messages.
+  password-reset messages can be delivered. If the SMTP username is an email
+  address, it is used as the default sender unless you set
+  `DJANGO_DEFAULT_FROM_EMAIL` explicitly.
 
 The database URL and SMTP credentials belong only in Render's secret
 environment settings, not in `render.yaml`, `.env.example`, or Git. Check
@@ -181,7 +185,7 @@ database recovery, or production readiness.
 - `GET /api/v1/auth/csrf/` — initialize a CSRF-protected browser session.
 - `GET /api/v1/auth/session/` — check whether the current browser session is authenticated without requesting protected profile data.
 - `POST /api/v1/auth/login/` — log in with email and password plus an `X-CSRFToken` header.
-- `POST /api/v1/auth/register/` — create an inactive user and their first organization (`businessType`: `company` or `restaurant`; `countryCode`: `EG` or `SA`), then send an email verification link; requires CSRF and is rate-limited.
+- `POST /api/v1/auth/register/` — create a user and their first organization (`businessType`: `company` or `restaurant`; `countryCode`: `EG` or `SA`); by default, starts a session immediately, while optional email verification can be enabled; requires CSRF and is rate-limited.
 - `POST /api/v1/auth/email/verify/` — activate the account using the expiring, single-use `uid` and `token` from the verification email.
 - `POST /api/v1/auth/email/resend-verification/` — request another verification email; responds generically and is rate-limited.
 - `POST /api/v1/auth/logout/` — end the authenticated session plus an `X-CSRFToken` header.
@@ -232,9 +236,9 @@ The first sales slice issues invoices directly; it does not include quotations, 
 
 Amounts are displayed with Egyptian-pound formatting for the local MVP; per-company currency configuration and exchange rates are not implemented.
 
-API authentication uses Django sessions and CSRF protection for login and other state-changing requests. Passwords are hashed by Django and checked against the configured validators during registration and password changes. New public accounts remain inactive until email ownership is confirmed; `createsuperuser` and accounts created by a platform owner are provisioned as verified. Membership write-management is not enabled. Profile endpoints never accept email, role, membership, or permission changes.
+API authentication uses Django sessions and CSRF protection for login and other state-changing requests. Passwords are hashed by Django and checked against the configured validators during registration and password changes. By default, self-registered accounts are activated immediately without email verification; set `DJANGO_REQUIRE_EMAIL_VERIFICATION=True` to require confirmation. `createsuperuser` and accounts created by a platform owner are provisioned as verified. Membership write-management is not enabled. Profile endpoints never accept email, role, membership, or permission changes.
 
-Self-registration is open to all users and creates a separate tenant for each new account. Password reset and email ownership verification use expiring, single-use tokens. Production SMTP delivery still must be configured and verified.
+Self-registration is open to all users and creates a separate tenant for each new account. Password reset uses expiring, single-use tokens and still requires production SMTP. Email ownership verification can be enabled with `DJANGO_REQUIRE_EMAIL_VERIFICATION=True`; it is disabled by default for the beta.
 
 Organization member and role endpoints are read-only. They enforce the requested company's active-membership permission server-side; no invitations, membership changes, or role/permission edits are available.
 

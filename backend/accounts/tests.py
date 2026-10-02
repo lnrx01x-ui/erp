@@ -94,6 +94,7 @@ class AuthenticationAPITests(TestCase):
         self.assertEqual(self.client.get("/api/v1/auth/me/").status_code, 403)
 
     @override_settings(
+        REQUIRE_EMAIL_VERIFICATION=True,
         EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
         DEFAULT_FROM_EMAIL="no-reply@example.test",
         PUBLIC_APP_URL="https://beta.example.test",
@@ -173,11 +174,12 @@ class AuthenticationAPITests(TestCase):
         )
 
     @override_settings(
+        REQUIRE_EMAIL_VERIFICATION=False,
         EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
         DEFAULT_FROM_EMAIL="no-reply@example.test",
         PUBLIC_APP_URL="https://beta.example.test",
     )
-    def test_new_user_must_verify_email_before_login(self):
+    def test_new_user_can_login_without_email_verification_when_disabled(self):
         registration = self.client.post(
             "/api/v1/auth/register/",
             {
@@ -193,31 +195,26 @@ class AuthenticationAPITests(TestCase):
         )
         self.assertEqual(registration.status_code, 201, registration.data)
         user = get_user_model().objects.get(email="new.owner@example.test")
+        self.assertTrue(user.is_active)
+        self.assertFalse(user.email_verified)
+        self.assertIn("user", registration.data)
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(
+            self.client.get("/api/v1/auth/session/").data,
+            {"authenticated": True},
+        )
 
-        csrf_token = self.get_csrf_token()
-        login_response = self.client.post(
-            "/api/v1/auth/login/",
-            {
-                "email": "NEW.OWNER@EXAMPLE.TEST",
-                "password": "Strong-Nasaq-Account-2026!",
-            },
+        organizations = self.client.get("/api/v1/organizations/")
+        self.assertEqual(organizations.status_code, 200, organizations.data)
+        self.assertEqual(len(organizations.data), 1)
+
+        logout_response = self.client.post(
+            "/api/v1/auth/logout/",
             format="json",
-            HTTP_X_CSRFTOKEN=csrf_token,
+            HTTP_X_CSRFTOKEN=registration.data["csrfToken"],
             HTTP_ORIGIN="http://localhost:5173",
         )
-        self.assertEqual(login_response.status_code, 401)
-
-        verification = self.client.post(
-            "/api/v1/auth/email/verify/",
-            {
-                "uid": urlsafe_base64_encode(force_bytes(user.pk)),
-                "token": email_verification_token_generator.make_token(user),
-            },
-            format="json",
-            HTTP_X_CSRFTOKEN=csrf_token,
-            HTTP_ORIGIN="http://localhost:5173",
-        )
-        self.assertEqual(verification.status_code, 200, verification.data)
+        self.assertEqual(logout_response.status_code, 204)
 
         login_response = self.client.post(
             "/api/v1/auth/login/",
@@ -230,22 +227,6 @@ class AuthenticationAPITests(TestCase):
             HTTP_ORIGIN="http://localhost:5173",
         )
         self.assertEqual(login_response.status_code, 200, login_response.data)
-        self.assertEqual(
-            login_response.data["user"]["email"],
-            "new.owner@example.test",
-        )
-
-        organizations = self.client.get("/api/v1/organizations/")
-        self.assertEqual(organizations.status_code, 200, organizations.data)
-        self.assertEqual(len(organizations.data), 1)
-
-        logout_response = self.client.post(
-            "/api/v1/auth/logout/",
-            format="json",
-            HTTP_X_CSRFTOKEN=login_response.data["csrfToken"],
-            HTTP_ORIGIN="http://localhost:5173",
-        )
-        self.assertEqual(logout_response.status_code, 204)
 
     def test_registration_requires_csrf(self):
         response = self.client.post(
