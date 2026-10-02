@@ -120,6 +120,61 @@ npm run dev
 
 Vite proxies `/api` requests to `http://127.0.0.1:8000`.
 
+## Render + Supabase deployment
+
+The repository root contains `render.yaml` for one Render web service. Django
+serves the Vite-built React app from `/`, the API from `/api/v1/`, and hashed
+frontend assets through WhiteNoise from `/static/`. This keeps session cookies
+and CSRF same-origin; the Vite proxy is used only for local development.
+
+For a Render Blueprint, create the service from this repository and fill the
+values marked as unsynced in the Render dashboard. Or create a **Web Service**
+manually with the repository root as its root directory and these commands:
+
+**Build Command**
+
+```sh
+pip install -r requirements.txt && npm ci --prefix frontend && npm run build --prefix frontend && python backend/manage.py collectstatic --noinput
+```
+
+**Start Command**
+
+```sh
+cd backend && python manage.py migrate --noinput && python manage.py createcachetable django_cache && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT
+```
+
+The start command runs from the repository root, changes into `backend/`, and
+starts `config.wsgi:application` with Gunicorn. Do not change the working
+directory to `backend/` in Render's Root Directory setting.
+
+Set these values in Render's environment dashboard; never commit their real
+values:
+
+- `DJANGO_DEBUG=False` and `DJANGO_SECRET_KEY` (Render can generate the key).
+- `DJANGO_ALLOWED_HOSTS` to the exact assigned Render hostname, without a
+  scheme, for example `your-service.onrender.com`.
+- `DJANGO_CSRF_TRUSTED_ORIGINS` and `PUBLIC_APP_URL` to the HTTPS site origin,
+  for example `https://your-service.onrender.com`.
+- `DJANGO_BEHIND_TRUSTED_HTTPS_PROXY=True`; Render terminates HTTPS before
+  forwarding requests to the service.
+- `DATABASE_URL` copied from the Supabase PostgreSQL connection settings.
+  Keep SSL enabled; the application rejects a production URL with
+  `sslmode=disable`.
+- Working SMTP settings (`DJANGO_EMAIL_HOST`, `DJANGO_EMAIL_HOST_USER`,
+  `DJANGO_EMAIL_HOST_PASSWORD`, and `DJANGO_DEFAULT_FROM_EMAIL`) so account
+  verification and password resets can deliver messages.
+
+The database URL and SMTP credentials belong only in Render's secret
+environment settings, not in `render.yaml`, `.env.example`, or Git. Check
+Supabase's current connection guidance for the selected network/IP support and
+pooler mode; use a connection string compatible with Django and Psycopg.
+
+Render/Supabase free-plan availability, sleeping/cold starts, quotas, and
+backup/restore guarantees depend on the providers' current terms. Confirm a
+successful Supabase backup and perform a restore drill before storing real
+business data. A successful deployment build alone does not prove SMTP,
+database recovery, or production readiness.
+
 ## API
 
 - `GET /api/v1/health/` — liveness check.

@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: nasaq-erp
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && npm ci --prefix frontend && npm run build --prefix frontend && python backend/manage.py collectstatic --noinput
+    startCommand: cd backend && python manage.py migrate --noinput && python manage.py createcachetable django_cache && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT
+    envVars:
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_BEHIND_TRUSTED_HTTPS_PROXY
+        value: "True"
+      - key: DJANGO_ALLOWED_HOSTS
+        sync: false
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: PUBLIC_APP_URL
+        sync: false
+      - key: DJANGO_EMAIL_HOST
+        sync: false
+      - key: DJANGO_EMAIL_PORT
+        value: "587"
+      - key: DJANGO_EMAIL_HOST_USER
+        sync: false
+      - key: DJANGO_EMAIL_HOST_PASSWORD
+        sync: false
+      - key: DJANGO_DEFAULT_FROM_EMAIL
+        sync: false
