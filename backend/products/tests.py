@@ -230,6 +230,8 @@ class ProductAPITests(TestCase):
         self.assertEqual(event.organization, self.organization)
         self.assertEqual(event.actor, self.user)
         self.assertEqual(event.metadata["category_id"], str(category.id))
+        self.assertEqual(event.metadata["changes"]["name"]["old"], "Coffee")
+        self.assertEqual(event.metadata["changes"]["name"]["new"], "Ground Coffee")
 
     def test_product_category_can_be_cleared_during_update(self):
         category = ProductCategory.objects.create(
@@ -335,6 +337,78 @@ class ProductAPITests(TestCase):
         product.refresh_from_db()
         self.assertEqual(product.sku, "EDIT-1")
         self.assertEqual(product.sale_price, Decimal("10.00"))
+
+    def test_owner_can_permanently_delete_unreferenced_product(self):
+        product = Product.objects.create(
+            organization=self.organization,
+            name="Historical product",
+            sku="HISTORY-1",
+        )
+
+        response = self.client.delete(f"{self.url}{product.id}/")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Product.objects.filter(pk=product.pk).exists())
+        self.assertEqual(self.client.get(self.url).data, [])
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                action="product.deleted",
+                entity_id=str(product.id),
+                organization=self.organization,
+            ).exists()
+        )
+
+    def test_product_delete_requires_manage_permission(self):
+        product = Product.objects.create(
+            organization=self.organization,
+            name="Protected product",
+        )
+        membership = Membership.objects.get(
+            user=self.user,
+            organization=self.organization,
+        )
+        read_only_role = Role.objects.create(
+            organization=self.organization,
+            name="Product reader",
+            code="product-reader",
+        )
+        read_only_role.permissions.add(
+            AccessPermission.objects.get(code="products.read")
+        )
+        membership.role = read_only_role
+        membership.save()
+
+        response = self.client.delete(f"{self.url}{product.id}/")
+
+        self.assertEqual(response.status_code, 403)
+        product.refresh_from_db()
+        self.assertTrue(product.is_active)
+
+    def test_product_with_inventory_history_cannot_be_deleted(self):
+        from inventory.models import StockMovement, Warehouse
+
+        product = Product.objects.create(
+            organization=self.organization,
+            name="Stocked product",
+        )
+        warehouse = Warehouse.objects.create(
+            organization=self.organization,
+            name="Main warehouse",
+        )
+        movement = StockMovement.objects.create(
+            organization=self.organization,
+            warehouse=warehouse,
+            product=product,
+            direction=StockMovement.Direction.IN,
+            quantity=Decimal("2.000"),
+            actor=self.user,
+        )
+
+        response = self.client.delete(f"{self.url}{product.id}/")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertTrue(StockMovement.objects.filter(pk=movement.pk).exists())
+        self.assertTrue(Product.objects.filter(pk=product.pk).exists())
 
     def test_owner_can_create_and_list_company_categories_with_audit_event(self):
         response = self.client.post(

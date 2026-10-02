@@ -14,7 +14,9 @@ class HasOrganizationPermission(BasePermission):
 
         return Membership.objects.filter(
             organization_id=organization_id,
+            organization__is_active=True,
             user=request.user,
             is_active=True,
+            role__organization_id=organization_id,
             role__permissions__code=permission_code,
         ).exists()

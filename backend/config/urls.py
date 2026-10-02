@@ -2,6 +2,10 @@ from django.contrib import admin
 from django.urls import include, path
 
 
+admin.site.site_header = "نسق | إدارة المنصة"
+admin.site.site_title = "إدارة نسق"
+admin.site.index_title = "إدارة الشركات والحسابات"
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/v1/", include("core.urls")),

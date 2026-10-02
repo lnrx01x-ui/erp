@@ -119,6 +119,36 @@ class InventoryAPITests(TestCase):
         self.assertEqual(duplicate_code.status_code, 400)
         self.assertEqual(Warehouse.objects.filter(organization=self.organization).count(), 1)
 
+    def test_warehouse_cannot_be_deleted_when_it_has_stock_history(self):
+        warehouse = self.create_warehouse()
+        movement = self.post_movement(warehouse["id"], "in", "1")
+
+        response = self.client.delete(
+            f"{self.warehouses_url}{warehouse['id']}/"
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertTrue(Warehouse.objects.filter(pk=warehouse["id"]).exists())
+        self.assertTrue(StockMovement.objects.filter(pk=movement.data["id"]).exists())
+
+    def test_warehouse_can_be_updated_and_deleted_when_unused(self):
+        warehouse = self.create_warehouse("Old name", "OLD")
+        detail_url = f"{self.warehouses_url}{warehouse['id']}/"
+
+        updated = self.client.patch(
+            detail_url,
+            {"name": "Updated name", "address": "Cairo"},
+            format="json",
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.data["name"], "Updated name")
+        self.assertEqual(updated.data["address"], "Cairo")
+
+        deleted = self.client.delete(detail_url)
+
+        self.assertEqual(deleted.status_code, 204)
+        self.assertFalse(Warehouse.objects.filter(pk=warehouse["id"]).exists())
+
     def test_stock_in_out_and_balance_are_ledger_based(self):
         warehouse = self.create_warehouse()
 
@@ -126,6 +156,10 @@ class InventoryAPITests(TestCase):
         self.assertEqual(incoming.status_code, 201, incoming.data)
         self.assertEqual(incoming.data["quantity"], "12.500")
         self.assertEqual(incoming.data["actor"], self.owner.id)
+        self.assertEqual(
+            StockMovement.objects.get(pk=incoming.data["id"]).actor_email_snapshot,
+            self.owner.email,
+        )
         self.assertTrue(
             AuditEvent.objects.filter(
                 action="stock_movement.created",
@@ -236,6 +270,21 @@ class InventoryAPITests(TestCase):
             ).status_code,
             403,
         )
+        warehouse = Warehouse.objects.create(
+            organization=self.organization,
+            name="Protected",
+            code="PROTECTED",
+        )
+        warehouse_url = f"{self.warehouses_url}{warehouse.id}/"
+        self.assertEqual(
+            self.client.patch(
+                warehouse_url,
+                {"name": "Unauthorized update"},
+                format="json",
+            ).status_code,
+            403,
+        )
+        self.assertEqual(self.client.delete(warehouse_url).status_code, 403)
 
         membership.is_active = False
         membership.save()

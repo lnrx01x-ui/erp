@@ -26,13 +26,13 @@ Backend responsibilities are divided into Django apps:
 
 | App | Current responsibility |
 | --- | --- |
-| `accounts` | UUID, email-based identity and basic profile; CSRF bootstrap and session login, logout, current-user, and password-change APIs |
+| `accounts` | UUID, email-based identity and basic profile; explicit platform-owner flag; CSRF bootstrap and session login, logout, current-user, and password-change APIs |
 | `organizations` | Tenant records, memberships, organization roles, permission catalog, and organization API |
 | `customers` | Customer records scoped to an organization |
 | `products` | Product/service catalog scoped to an organization |
 | `inventory` | Warehouses, append-only stock movements, calculated balances |
 | `sales` | Issued sales invoices, immutable invoice lines, and collections |
-| `audit` | Organization-scoped audit events |
+| `audit` | Append-only organization-scoped and platform-wide audit events |
 | `core` | Public health endpoint |
 
 The frontend is a single React application. Its Vite proxy forwards `/api`
@@ -55,6 +55,10 @@ User ──< Membership >── Organization ──< Role >──< AccessPermiss
 ```
 
 - A user can have memberships in multiple organizations.
+- Each organization is explicitly typed as a general company or restaurant and
+  configured for Egypt or Saudi Arabia. This classifies onboarding only; local
+  tax/e-invoicing rules and restaurant-specific operations are not implemented
+  by these fields.
 - A user profile has an optional phone field; first/last name and date joined
   use existing Django user fields. Email remains the unique login identity.
 - A membership is unique per `(organization, user)`, can be deactivated, and
@@ -78,8 +82,10 @@ User ──< Membership >── Organization ──< Role >──< AccessPermiss
 - Product SKU is unique within an organization when non-empty. Sale and cost
   amounts use fixed-precision decimals and database non-negative constraints.
 - The audit actor is nullable so events can remain attributable when an account
-  is removed. The organization is protected from deletion while audit events
-  refer to it.
+  is removed. Audit events retain organization ID/name snapshots and are
+  detached from a company if it is deleted; actor email snapshots remain when
+  an account is deleted. Ordinary audit changes/deletes are blocked, while
+  deletion may only null the organization/actor foreign keys.
 - Django migrations are the schema history. SQLite is the local default;
   PostgreSQL is selected through `DATABASE_URL`.
 
@@ -92,6 +98,11 @@ are not modeled yet.
 
 1. Django authenticates users by unique, normalized email and stores browser
    authentication in a Django session.
+   Platform operators have an independent `is_platform_owner` account flag;
+   it is not a company role and does not grant membership-based API access.
+   `createsuperuser` sets this flag and the initial migration promotes existing
+   superusers. The admin middleware denies non-platform-owner accounts access
+   to `/admin/`.
 2. The frontend obtains a CSRF token before login and sends `X-CSRFToken` with
    login and other state-changing requests. Django's CSRF middleware remains
    enabled.
@@ -138,11 +149,16 @@ All application API routes use `/api/v1/`.
 | `POST /auth/password/change/` | Verify current password and validators before changing password |
 | `GET /organizations/` | List organizations with the user's active memberships |
 | `POST /organizations/` | Create an organization and its initial owner/membership |
+| `PATCH /organizations/{id}/` | Update the company name with `organization.manage` |
+| `DELETE /organizations/{id}/` | Permanently delete a company only when it has no invoices or stock movements; audit snapshots remain |
 | `GET /organizations/{id}/customers/` | List customers with `customers.read` |
 | `POST /organizations/{id}/customers/` | Create a customer with `customers.manage` |
+| `PATCH /organizations/{id}/customers/{customer_id}/` | Update a customer with `customers.manage` |
+| `DELETE /organizations/{id}/customers/{customer_id}/` | Permanently delete an unreferenced customer; returns `409` when invoices protect it |
 | `GET /organizations/{id}/products/` | List products with `products.read` |
 | `POST /organizations/{id}/products/` | Create a product with `products.manage` |
 | `PATCH /organizations/{id}/products/{product_id}/` | Update a product in the organization with `products.manage` |
+| `DELETE /organizations/{id}/products/{product_id}/` | Permanently delete an unreferenced product; returns `409` when invoices or stock movements protect it |
 | `GET /organizations/{id}/product-categories/` | List organization product categories with `products.read` |
 | `POST /organizations/{id}/product-categories/` | Create an organization product category with `products.manage` |
 | `GET /organizations/{id}/warehouses/` | List warehouses with `inventory.read` |
@@ -182,12 +198,21 @@ The established local database and its data are part of the baseline.
 ## Known boundaries (not claims of production readiness)
 
 - The audit model rejects ordinary ORM updates/deletes and the Django admin is
-  read-only for events. This is application-level protection, not an
-  immutable database ledger; a database administrator can still alter rows.
-- There are currently no customer update/archive endpoints,
-  employee invitation flow, role/membership write-management API, purchases,
-  accounting postings, VAT/e-invoicing, refunds, or reconciliation. Sales
-  reporting is limited to issued invoice totals and their collections.
+  read-only for events. Company deletion detaches audit events while retaining
+  immutable organization ID/name and actor email snapshots. The platform
+  dashboard summarizes all tenants and shows recent activity; admin lists
+  expose all accounts, companies, memberships, roles, customers, products,
+  warehouses, invoices, collections, stock movements, and audit events.
+  Financial records, stock ledger rows, and audit events are read-only in
+  admin. This is application-level protection, not an immutable database
+  ledger; a database administrator can still alter rows.
+- Customer and product records can be permanently deleted only when no
+  protected business history references them. Organization deletion is blocked
+  when invoices or stock movements exist.
+- There are currently no employee invitation flow, role/membership
+  write-management API, restaurant POS/table/menu/recipe/kitchen/shift modules,
+  purchases, accounting postings, VAT/e-invoicing, refunds, or reconciliation.
+  Sales reporting is limited to issued invoice totals and their collections.
 - Product prices have two decimal places, but a company currency and exchange
   rate model have not been decided.
 - PostgreSQL is supported by settings and the Psycopg dependency, but current

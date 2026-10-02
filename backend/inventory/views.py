@@ -83,7 +83,25 @@ class OrganizationWarehouseDetailView(RetrieveUpdateDestroyAPIView):
 
     @transaction.atomic
     def perform_update(self, serializer):
+        previous = serializer.instance
+        old_values = {
+            "name": previous.name,
+            "code": previous.code,
+            "address": previous.address,
+            "is_active": previous.is_active,
+        }
         warehouse = serializer.save()
+        new_values = {
+            "name": warehouse.name,
+            "code": warehouse.code,
+            "address": warehouse.address,
+            "is_active": warehouse.is_active,
+        }
+        changes = {
+            key: {"old": old_values[key], "new": new_values[key]}
+            for key in old_values
+            if old_values[key] != new_values[key]
+        }
         AuditEvent.objects.create(
             organization=warehouse.organization,
             actor=self.request.user,
@@ -94,15 +112,24 @@ class OrganizationWarehouseDetailView(RetrieveUpdateDestroyAPIView):
                 "name": warehouse.name,
                 "code": warehouse.code,
                 "is_active": warehouse.is_active,
+                "changes": changes,
             },
         )
 
     @transaction.atomic
     def destroy(self, request, *args, **kwargs):
-        warehouse = self.get_object()
-        if warehouse.stock_movements.exists():
+        warehouse = Warehouse.objects.select_for_update().get(
+            pk=self.get_object().pk,
+            organization_id=self.kwargs["organization_id"],
+        )
+        if warehouse.stock_movements.exists() or warehouse.sales_invoices.exists():
             return Response(
-                {"detail": "A warehouse with stock movements cannot be deleted."},
+                {
+                    "detail": (
+                        "لا يمكن حذف مخزن مرتبط بحركات مخزون أو فواتير. "
+                        "يمكنك تعديله أو تعطيله للاحتفاظ بالسجل."
+                    )
+                },
                 status=status.HTTP_409_CONFLICT,
             )
         organization = warehouse.organization
@@ -112,7 +139,12 @@ class OrganizationWarehouseDetailView(RetrieveUpdateDestroyAPIView):
             warehouse.delete()
         except ProtectedError:
             return Response(
-                {"detail": "A warehouse with stock movements cannot be deleted."},
+                {
+                    "detail": (
+                        "لا يمكن حذف مخزن مرتبط بحركات مخزون أو فواتير. "
+                        "يمكنك تعديله أو تعطيله للاحتفاظ بالسجل."
+                    )
+                },
                 status=status.HTTP_409_CONFLICT,
             )
         AuditEvent.objects.create(

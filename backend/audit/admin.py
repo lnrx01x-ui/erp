@@ -5,13 +5,28 @@ from .models import AuditEvent
 
 @admin.register(AuditEvent)
 class AuditEventAdmin(admin.ModelAdmin):
-    list_display = ("action", "organization", "actor", "entity_type", "created_at")
+    list_display = (
+        "action",
+        "organization_display",
+        "actor_display",
+        "entity_type",
+        "created_at",
+    )
     list_filter = ("action", "entity_type", "created_at")
-    search_fields = ("organization__name", "actor__email", "entity_id")
+    search_fields = (
+        "organization__name",
+        "organization_name_snapshot",
+        "organization_id_snapshot",
+        "actor__email",
+        "entity_id",
+    )
     readonly_fields = (
         "id",
         "organization",
+        "organization_id_snapshot",
+        "organization_name_snapshot",
         "actor",
+        "actor_email_snapshot",
         "action",
         "entity_type",
         "entity_id",

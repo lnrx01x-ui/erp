@@ -47,6 +47,7 @@ class Invoice(models.Model):
         blank=True,
         related_name="issued_sales_invoices",
     )
+    actor_email_snapshot = models.EmailField(blank=True, default="")
     issued_at = models.DateTimeField(auto_now_add=True)
 
     objects = models.Manager.from_queryset(ImmutableQuerySet)()
@@ -86,6 +87,8 @@ class Invoice(models.Model):
                 organization_id=self.organization_id,
             ).exists():
                 raise ValidationError({"warehouse": "Warehouse must belong to this organization."})
+        if self.actor_id:
+            self.actor_email_snapshot = self.actor.email
         return super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
@@ -183,6 +186,7 @@ class PaymentCollection(models.Model):
         blank=True,
         related_name="sales_payment_collections",
     )
+    actor_email_snapshot = models.EmailField(blank=True, default="")
     collected_at = models.DateTimeField(auto_now_add=True)
 
     objects = models.Manager.from_queryset(ImmutableQuerySet)()
@@ -210,6 +214,8 @@ class PaymentCollection(models.Model):
                 raise ValidationError({"invoice": "Invoice must belong to this organization."})
         if self.amount is None or self.amount <= 0:
             raise ValidationError({"amount": "Collection amount must be greater than zero."})
+        if self.actor_id:
+            self.actor_email_snapshot = self.actor.email
         self.note = self.note.strip()
         return super().save(*args, **kwargs)
 

@@ -88,6 +88,7 @@ class StockMovement(models.Model):
         blank=True,
         related_name="stock_movements",
     )
+    actor_email_snapshot = models.EmailField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects = models.Manager.from_queryset(StockMovementQuerySet)()
@@ -131,6 +132,8 @@ class StockMovement(models.Model):
                 organization_id=self.organization_id,
             ).exists():
                 raise ValidationError({"product": "Product must belong to this organization."})
+        if self.actor_id:
+            self.actor_email_snapshot = self.actor.email
         self.note = self.note.strip()
         return super().save(*args, **kwargs)
 

@@ -1,16 +1,19 @@
 from decimal import Decimal
 
+from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.test import TestCase
+from django.test import Client, RequestFactory, TestCase
+from django.urls import reverse
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from audit.models import AuditEvent
 from customers.models import Customer
 from inventory.models import StockMovement, Warehouse
-from organizations.models import AccessPermission, Membership, Role
+from organizations.models import AccessPermission, Membership, Organization, Role
 from organizations.services import create_organization_for_owner
-from products.models import Product
+from organizations.admin import MembershipAdmin, RoleAdmin
+from products.models import Product, ProductCategory
 
 from .models import Invoice, InvoiceLine, PaymentCollection
 from .views import (
@@ -126,6 +129,7 @@ class SalesAPITests(TestCase):
         self.assertRegex(invoice.number, r"^INV-\d{8}-\d{6}$")
         self.assertEqual(invoice.total, Decimal("126.62"))
         self.assertEqual(invoice.actor, self.owner)
+        self.assertEqual(invoice.actor_email_snapshot, self.owner.email)
         self.assertEqual(invoice.lines.count(), 2)
         self.assertEqual(
             list(invoice.lines.values_list("line_total", flat=True)),
@@ -446,8 +450,203 @@ class SalesAPITests(TestCase):
 
         payment_response = self.collect(invoice.id, "1.00")
         payment = PaymentCollection.objects.get(pk=payment_response.data["id"])
+        self.assertEqual(payment.actor_email_snapshot, self.owner.email)
         payment.amount = Decimal("2.00")
         with self.assertRaises(DjangoValidationError):
             payment.save()
         with self.assertRaises(DjangoValidationError):
             payment.delete()
+
+
+class PlatformAdminTests(TestCase):
+    def test_superuser_can_view_all_companies_accounts_and_read_only_sales(self):
+        superuser = get_user_model().objects.create_superuser(
+            email="platform-admin@example.test",
+            password="Admin-test-password-2026!",
+        )
+        client = Client()
+        client.force_login(superuser)
+
+        for model in (
+            get_user_model(),
+            Organization,
+            Membership,
+            Role,
+            Customer,
+            Product,
+            Warehouse,
+            StockMovement,
+            ProductCategory,
+            Invoice,
+            InvoiceLine,
+            PaymentCollection,
+        ):
+            with self.subTest(model=model.__name__):
+                response = client.get(
+                    reverse(
+                        f"admin:{model._meta.app_label}_{model._meta.model_name}_changelist"
+                    )
+                )
+                self.assertEqual(response.status_code, 200)
+        self.assertTrue(admin.site.is_registered(Invoice))
+        self.assertTrue(admin.site.is_registered(Invoice))
+        request = RequestFactory().get("/admin/")
+        request.user = superuser
+        invoice_admin = admin.site._registry[Invoice]
+        self.assertFalse(invoice_admin.has_add_permission(request))
+        self.assertFalse(invoice_admin.has_delete_permission(request))
+        self.assertTrue(superuser.is_platform_owner)
+
+    def test_dashboard_shows_global_metrics_and_recent_activity(self):
+        platform_owner = get_user_model().objects.create_superuser(
+            email="platform-owner@example.test",
+            password="Platform-owner-password-2026!",
+        )
+        company_user = get_user_model().objects.create_user(
+            email="company-owner@example.test",
+            password="Company-owner-password-2026!",
+        )
+        organization = create_organization_for_owner(
+            name="Dashboard Company",
+            actor=company_user,
+        )
+        warehouse = Warehouse.objects.create(
+            organization=organization,
+            name="Main",
+        )
+        invoice = Invoice.objects.create(
+            organization=organization,
+            number="INV-DASH-1",
+            customer=self._customer(organization),
+            warehouse=warehouse,
+            total=Decimal("123.45"),
+            actor=company_user,
+        )
+        PaymentCollection.objects.create(
+            organization=organization,
+            invoice=invoice,
+            amount=Decimal("23.45"),
+            method=PaymentCollection.Method.CASH,
+            actor=company_user,
+        )
+        AuditEvent.objects.create(
+            organization=organization,
+            actor=company_user,
+            action="test.activity",
+            entity_type="test",
+            entity_id="dashboard",
+        )
+        client = Client()
+        client.force_login(platform_owner)
+
+        response = client.get(reverse("admin:index"))
+
+        self.assertEqual(response.status_code, 200)
+        dashboard = response.context["platform_dashboard"]
+        self.assertEqual(dashboard["organization_count"], 1)
+        self.assertEqual(dashboard["user_count"], 2)
+        self.assertEqual(dashboard["invoice_count"], 1)
+        self.assertEqual(dashboard["invoice_total"], Decimal("123.45"))
+        self.assertEqual(dashboard["collection_total"], Decimal("23.45"))
+        self.assertTrue(
+            any(event.action == "test.activity" for event in dashboard["recent_events"])
+        )
+
+    def test_staff_user_without_platform_owner_role_cannot_open_admin(self):
+        staff_user = get_user_model().objects.create_user(
+            email="company-staff@example.test",
+            password="Company-staff-password-2026!",
+            is_staff=True,
+        )
+        self.assertFalse(staff_user.is_platform_owner)
+        client = Client()
+        client.force_login(staff_user)
+
+        response = client.get(reverse("admin:index"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_platform_admin_role_and_membership_changes_are_audited(self):
+        platform_owner = get_user_model().objects.create_superuser(
+            email="owner@example.test",
+            password="Platform-owner-password-2026!",
+        )
+        company_user = get_user_model().objects.create_user(
+            email="member@example.test",
+            password="Company-member-password-2026!",
+        )
+        organization = create_organization_for_owner(
+            name="Role Audit Company",
+            actor=company_user,
+        )
+        membership = Membership.objects.get(
+            organization=organization,
+            user=company_user,
+        )
+        owner_role = organization.roles.get(code="owner")
+        reader_role = Role.objects.create(
+            organization=organization,
+            name="Reader",
+            code="reader",
+        )
+        request = RequestFactory().post("/admin/")
+        request.user = platform_owner
+
+        membership.role = reader_role
+        membership.is_active = False
+        MembershipAdmin(Membership, admin.site).save_model(
+            request,
+            membership,
+            form=None,
+            change=True,
+        )
+        membership_event = AuditEvent.objects.get(
+            action="membership.updated",
+            entity_id=str(membership.id),
+        )
+        self.assertEqual(
+            membership_event.metadata["changes"],
+            {
+                "role": {"old": owner_role.code, "new": reader_role.code},
+                "is_active": {"old": True, "new": False},
+            },
+        )
+
+        role = organization.roles.get(code="administrator")
+        role.name = "Operations"
+        role_admin = RoleAdmin(Role, admin.site)
+        role_admin.save_model(request, role, form=None, change=True)
+        role.permissions.clear()
+        role.permissions.add(AccessPermission.objects.get(code="customers.read"))
+
+        class Form:
+            instance = role
+
+            @staticmethod
+            def save_m2m():
+                return None
+
+        role_admin.save_related(request, Form(), [], change=True)
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                action="role.updated",
+                entity_id=str(role.id),
+                metadata__changes__name__old="Administrator",
+                metadata__changes__name__new="Operations",
+            ).exists()
+        )
+        permission_event = AuditEvent.objects.get(
+            action="role.permissions_changed",
+            entity_id=str(role.id),
+        )
+        self.assertIn("customers.read", permission_event.metadata["permissions"]["new"])
+        self.assertNotEqual(
+            permission_event.metadata["permissions"]["old"],
+            permission_event.metadata["permissions"]["new"],
+        )
+
+    @staticmethod
+    def _customer(organization):
+        return Customer.objects.create(
+            organization=organization,
+            name="Dashboard customer",
+        )

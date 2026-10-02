@@ -24,3 +24,28 @@ class AuditEventTests(TestCase):
 
         event.refresh_from_db()
         self.assertEqual(event.action, "organization.created")
+
+    def test_actor_and_company_identity_survive_account_and_company_deletion(self):
+        user = User.objects.create_user(
+            email="historical-actor@example.test",
+            password="Historical-actor-test-password-2026!",
+        )
+        organization = create_organization_for_owner(
+            name="Historical company",
+            actor=user,
+        )
+        event = AuditEvent.objects.create(
+            organization=organization,
+            actor=user,
+            action="test.activity",
+            entity_type="test",
+            entity_id="history",
+        )
+        user.delete()
+        organization.delete()
+
+        event.refresh_from_db()
+        self.assertIsNone(event.actor_id)
+        self.assertIsNone(event.organization_id)
+        self.assertEqual(event.actor_display, "historical-actor@example.test")
+        self.assertEqual(event.organization_display, "Historical company")

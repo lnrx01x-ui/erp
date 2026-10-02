@@ -3,8 +3,11 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from audit.models import AuditEvent
+from customers.models import Customer
+from inventory.models import Warehouse
 from organizations.models import AccessPermission, Membership, Role
 from organizations.services import create_organization_for_owner
+from sales.models import Invoice
 
 
 class CustomerAPITests(TestCase):
@@ -104,3 +107,99 @@ class CustomerAPITests(TestCase):
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, 403)
+
+    def test_owner_can_update_and_permanently_delete_unreferenced_customer(self):
+        created = self.client.post(
+            self.url,
+            {"name": "Before", "phone": "+201000000000"},
+            format="json",
+        )
+        detail_url = f"{self.url}{created.data['id']}/"
+
+        updated = self.client.patch(
+            detail_url,
+            {"name": "After", "address": "Cairo"},
+            format="json",
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.data["name"], "After")
+        self.assertEqual(updated.data["address"], "Cairo")
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                action="customer.updated",
+                entity_id=created.data["id"],
+                metadata__changes__name__old="Before",
+                metadata__changes__name__new="After",
+            ).exists()
+        )
+
+        deleted = self.client.delete(detail_url)
+
+        self.assertEqual(deleted.status_code, 204)
+        self.assertFalse(Customer.objects.filter(pk=created.data["id"]).exists())
+        self.assertEqual(self.client.get(self.url).data, [])
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                action="customer.deleted",
+                entity_id=created.data["id"],
+            ).exists()
+        )
+
+    def test_customer_with_invoice_history_cannot_be_deleted(self):
+        created = self.client.post(
+            self.url,
+            {"name": "Invoiced customer"},
+            format="json",
+        )
+        customer = Customer.objects.get(pk=created.data["id"])
+        warehouse = Warehouse.objects.create(
+            organization=self.organization,
+            name="Main warehouse",
+        )
+        Invoice.objects.create(
+            organization=self.organization,
+            number="INV-HISTORY-1",
+            customer=customer,
+            warehouse=warehouse,
+            total="10.00",
+        )
+
+        response = self.client.delete(f"{self.url}{customer.id}/")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertTrue(Customer.objects.filter(pk=customer.pk).exists())
+
+    def test_customer_update_and_delete_require_manage_permission(self):
+        created = self.client.post(
+            self.url,
+            {"name": "Protected customer"},
+            format="json",
+        )
+        membership = Membership.objects.get(
+            user=self.user,
+            organization=self.organization,
+        )
+        read_only_role = Role.objects.create(
+            organization=self.organization,
+            name="Customer reader",
+            code="customer-reader",
+        )
+        read_only_role.permissions.add(
+            AccessPermission.objects.get(code="customers.read")
+        )
+        membership.role = read_only_role
+        membership.save()
+
+        detail_url = f"{self.url}{created.data['id']}/"
+        update_response = self.client.patch(
+            detail_url,
+            {"name": "Not allowed"},
+            format="json",
+        )
+        delete_response = self.client.delete(detail_url)
+
+        self.assertEqual(update_response.status_code, 403)
+        self.assertEqual(delete_response.status_code, 403)
+        self.assertTrue(
+            Customer.objects.filter(pk=created.data["id"], is_active=True).exists()
+        )

@@ -5,8 +5,27 @@ from django.db import models
 
 
 class Organization(models.Model):
+    class BusinessType(models.TextChoices):
+        COMPANY = "company", "Company"
+        RESTAURANT = "restaurant", "Restaurant"
+
+    class CountryCode(models.TextChoices):
+        EGYPT = "EG", "Egypt"
+        SAUDI_ARABIA = "SA", "Saudi Arabia"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=160)
+    business_type = models.CharField(
+        max_length=16,
+        choices=BusinessType.choices,
+        default=BusinessType.COMPANY,
+    )
+    country_code = models.CharField(
+        max_length=2,
+        choices=CountryCode.choices,
+        default=CountryCode.EGYPT,
+    )
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

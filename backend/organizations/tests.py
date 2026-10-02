@@ -1,10 +1,13 @@
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIClient
+from decimal import Decimal
 
 from audit.models import AuditEvent
 from organizations.models import Membership, Role
 from organizations.services import create_organization_for_owner
+from inventory.models import StockMovement, Warehouse
+from products.models import Product
 
 
 class OrganizationAPITests(TestCase):
@@ -71,6 +74,144 @@ class OrganizationAPITests(TestCase):
 
     def test_organization_api_requires_authentication(self):
         response = self.client.get("/api/v1/organizations/")
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_owner_can_delete_empty_organization_and_preserve_audit_snapshots(self):
+        self.client.force_authenticate(self.user)
+        created = self.client.post(
+            "/api/v1/organizations/",
+            {"name": "Delete Me"},
+            format="json",
+        )
+        organization_id = created.data["id"]
+        organization = Membership.objects.get(organization_id=organization_id).organization
+
+        response = self.client.delete(
+            f"/api/v1/organizations/{organization_id}/"
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(type(organization).objects.filter(pk=organization_id).exists())
+        self.assertTrue(get_user_model().objects.filter(pk=self.user.pk).exists())
+        self.assertFalse(Membership.objects.filter(organization_id=organization_id).exists())
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                organization__isnull=True,
+                organization_id_snapshot=organization_id,
+                organization_name_snapshot="Delete Me",
+                actor=self.user,
+                action="organization.created",
+            ).exists()
+        )
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                organization__isnull=True,
+                organization_id_snapshot=organization_id,
+                organization_name_snapshot="Delete Me",
+                action="organization.deleted",
+            ).exists()
+        )
+        self.assertEqual(
+            self.client.get("/api/v1/organizations/").data,
+            [],
+        )
+
+    def test_company_with_stock_history_cannot_be_deleted(self):
+        organization = create_organization_for_owner(
+            name="Historical company",
+            actor=self.user,
+        )
+        warehouse = Warehouse.objects.create(
+            organization=organization,
+            name="Main warehouse",
+        )
+        product = Product.objects.create(
+            organization=organization,
+            name="Historical product",
+        )
+        StockMovement.objects.create(
+            organization=organization,
+            warehouse=warehouse,
+            product=product,
+            direction=StockMovement.Direction.IN,
+            quantity=Decimal("1.000"),
+            actor=self.user,
+        )
+        self.client.force_authenticate(self.user)
+
+        response = self.client.delete(f"/api/v1/organizations/{organization.id}/")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertTrue(type(organization).objects.filter(pk=organization.pk).exists())
+
+    def test_owner_can_rename_organization_and_audit_the_change(self):
+        organization = create_organization_for_owner(
+            name="Old organization name",
+            actor=self.user,
+        )
+        self.client.force_authenticate(self.user)
+
+        response = self.client.patch(
+            f"/api/v1/organizations/{organization.id}/",
+            {"name": "  New organization name  "},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["name"], "New organization name")
+        organization.refresh_from_db()
+        self.assertEqual(organization.name, "New organization name")
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                organization=organization,
+                actor=self.user,
+                action="organization.updated",
+                metadata__changes__name__old="Old organization name",
+                metadata__changes__name__new="New organization name",
+            ).exists()
+        )
+
+    def test_member_without_organization_manage_cannot_delete_company(self):
+        organization = create_organization_for_owner(
+            name="Protected Company",
+            actor=self.user,
+        )
+        membership = Membership.objects.get(
+            user=self.user,
+            organization=organization,
+        )
+        membership.role.permissions.remove(
+            membership.role.permissions.get(code="organization.manage")
+        )
+        self.client.force_authenticate(self.user)
+
+        response = self.client.delete(
+            f"/api/v1/organizations/{organization.id}/"
+        )
+        update_response = self.client.patch(
+            f"/api/v1/organizations/{organization.id}/",
+            {"name": "Unauthorized rename"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(update_response.status_code, 403)
+        organization.refresh_from_db()
+        self.assertTrue(organization.is_active)
+
+    def test_disabled_organization_rejects_all_scoped_api_requests(self):
+        organization = create_organization_for_owner(
+            name="Disabled Company",
+            actor=self.user,
+        )
+        organization.is_active = False
+        organization.save(update_fields=("is_active",))
+        self.client.force_authenticate(self.user)
+
+        response = self.client.get(
+            f"/api/v1/organizations/{organization.id}/customers/"
+        )
 
         self.assertEqual(response.status_code, 403)
 

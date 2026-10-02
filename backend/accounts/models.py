@@ -20,11 +20,25 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("is_active", True)
+        extra_fields.setdefault("email_verified", True)
+        extra_fields["is_platform_owner"] = True
         if extra_fields.get("is_staff") is not True:
             raise ValueError("A superuser must have is_staff=True.")
         if extra_fields.get("is_superuser") is not True:
             raise ValueError("A superuser must have is_superuser=True.")
-        return self.create_user(email, password, **extra_fields)
+        user = self.create_user(email, password, **extra_fields)
+        from audit.models import AuditEvent
+
+        AuditEvent.objects.create(
+            action="platform_owner.provisioned",
+            entity_type="user",
+            entity_id=str(user.id),
+            metadata={
+                "email": user.email,
+                "creator": "createsuperuser bootstrap",
+            },
+        )
+        return user
 
 
 class User(AbstractUser):
@@ -32,6 +46,12 @@ class User(AbstractUser):
     username = None
     email = models.EmailField(unique=True)
     phone = models.CharField(max_length=40, blank=True, default="")
+    email_verified = models.BooleanField(default=False)
+    is_platform_owner = models.BooleanField(
+        "Platform owner",
+        default=False,
+        help_text="Grants access to cross-company platform administration.",
+    )
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []

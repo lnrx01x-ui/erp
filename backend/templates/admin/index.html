@@ -1,0 +1,88 @@
+{% extends "admin/index.html" %}
+{% block content %}
+  {% if platform_dashboard %}
+    <section class="platform-dashboard" aria-labelledby="platform-dashboard-title">
+      <h1 id="platform-dashboard-title">ملخص المنصة</h1>
+      <p>إحصاءات شاملة لجميع الشركات والحسابات المسجلة خلال آخر 30 يومًا. إجماليات الفواتير والتحصيلات تعرض القيم المسجلة حاليًا، دون تحويل عملات.</p>
+      <div class="platform-dashboard-cards">
+        <a href="{% url 'admin:organizations_organization_changelist' %}">
+          <span>الشركات</span>
+          <strong>{{ platform_dashboard.organization_count }}</strong>
+          <small>جديدة: {{ platform_dashboard.new_organization_count }}</small>
+        </a>
+        <a href="{% url 'admin:accounts_user_changelist' %}">
+          <span>المستخدمون</span>
+          <strong>{{ platform_dashboard.user_count }}</strong>
+          <small>جدد: {{ platform_dashboard.new_user_count }}</small>
+        </a>
+        <a href="{% url 'admin:sales_invoice_changelist' %}">
+          <span>الفواتير</span>
+          <strong>{{ platform_dashboard.invoice_count }}</strong>
+          <small>قيمة الفواتير: {{ platform_dashboard.invoice_total|floatformat:2 }}</small>
+        </a>
+        <a href="{% url 'admin:sales_paymentcollection_changelist' %}">
+          <span>التحصيلات</span>
+          <strong>{{ platform_dashboard.collection_total|floatformat:2 }}</strong>
+          <small>إجمالي المبالغ المسجلة</small>
+        </a>
+      </div>
+
+      <div class="platform-dashboard-activity">
+        <h2>آخر أنشطة المنصة</h2>
+        <div class="results">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">التاريخ والوقت</th>
+                <th scope="col">المستخدم</th>
+                <th scope="col">العملية</th>
+                <th scope="col">السجل</th>
+                <th scope="col">الشركة</th>
+                <th scope="col">التفاصيل</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for event in platform_dashboard.recent_events %}
+                <tr>
+                  <td>{{ event.created_at|date:"Y-m-d H:i" }}</td>
+                  <td>{{ event.actor_display }}</td>
+                  <td>{{ event.action }}</td>
+                  <td>{{ event.entity_type }} · {{ event.entity_id }}</td>
+                  <td>{{ event.organization_display|default:"على مستوى المنصة" }}</td>
+                  <td>{{ event.metadata }}</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="6">لا توجد أنشطة مسجلة حتى الآن.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <p><a href="{% url 'admin:audit_auditevent_changelist' %}">فتح سجل التدقيق الكامل</a></p>
+      </div>
+    </section>
+    <style>
+      .platform-dashboard { margin: 0 0 28px; }
+      .platform-dashboard > p { color: var(--body-quiet-color); }
+      .platform-dashboard-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+        gap: 14px;
+        margin: 20px 0 28px;
+      }
+      .platform-dashboard-cards a {
+        display: grid;
+        gap: 8px;
+        padding: 18px;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        background: var(--body-bg);
+      }
+      .platform-dashboard-cards strong { font-size: 1.7rem; }
+      .platform-dashboard-cards small { color: var(--body-quiet-color); }
+      .platform-dashboard-activity .results { overflow-x: auto; }
+      .platform-dashboard-activity table { min-width: 720px; }
+      .platform-dashboard-activity td { white-space: nowrap; }
+    </style>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

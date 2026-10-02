@@ -27,8 +27,18 @@ PERMISSIONS = (
 
 
 @transaction.atomic
-def create_organization_for_owner(*, name, actor):
-    organization = Organization.objects.create(name=name.strip())
+def create_organization_for_owner(
+    *,
+    name,
+    actor,
+    business_type=Organization.BusinessType.COMPANY,
+    country_code=Organization.CountryCode.EGYPT,
+):
+    organization = Organization.objects.create(
+        name=name.strip(),
+        business_type=business_type,
+        country_code=country_code,
+    )
     permission_objects = [
         AccessPermission.objects.get_or_create(code=code, defaults={"name": label})[0]
         for code, label in PERMISSIONS
